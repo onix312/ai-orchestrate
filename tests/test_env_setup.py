@@ -57,6 +57,14 @@ class EnvSetupTests(unittest.TestCase):
                 self.assertFalse(blocked["ready"])
                 self.assertIn("codex.missing", [item["id"] for item in blocked["problems"]])
                 self.assertEqual(blocked["tools"]["codex"]["state"], "missing")
+                # Ручной исполнитель «ChatGPT (обычный чат)» работает без Codex CLI.
+                manual = env_setup.environment_report(executor="chatgpt")
+                self.assertNotIn("codex.missing", [item["id"] for item in manual["problems"]
+                                                   if item["severity"] == "blocker"])
+                self.assertEqual(manual["executor"], "chatgpt")
+                self.assertFalse(manual["tools"]["codex"]["required"])
+                api = env_setup.environment_report(executor="api")
+                self.assertEqual(api["executor"], "api")
 
                 codex = _write_executable(Path(tmp) / ".local" / "bin" / "codex", FAKE_CODEX)
                 env_setup.clear_auth_cache()

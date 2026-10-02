@@ -67,6 +67,35 @@ async function main() {
   await first;
   assert.deepEqual(saves, [{version: 1}, {version: 2}], 'An edit during save must not get lost');
 
+  // Ручной мост через обычный ChatGPT: панель показывает промпт и отправляет ответ.
+  const manualRequest = {kind: 'code', stage: 'implementation', role: 'Разработчик',
+    title: 'Правки кода для обычного ChatGPT', instructions: 'Верни файлы целиком.',
+    prompt: 'Ты — инженер...', chars: 120, url: 'https://chatgpt.com/?q=abcdef',
+    prompt_in_url: true, created_at: '2026-01-01T00:00:01+00:00'};
+  context.fetch = async () => ({ok: true, json: async () => ({events: [], status: 'awaiting_answer',
+    can_confirm: false, can_discard: false, can_bridge: false, result: {},
+    manual: {waiting: true, answered: 0, timeout_seconds: 3600, request: manualRequest, history: []},
+    can_answer: true})});
+  run('state.jobId = "run-1"; state.lastEvent = 0; state.polling = false;');
+  await run('poll()');
+  assert.equal(nodes.get('relayPanel').hidden, false, 'A pending manual step must open the relay panel');
+  assert.equal(nodes.get('relayPromptText').value, 'Ты — инженер...');
+  assert.equal(nodes.get('relaySendButton').disabled, true, 'An empty answer cannot be sent');
+  run('state.manualBusy = false; $("relayAnswer").value = "### FILE: app.py"; syncRelayButtons();');
+  assert.equal(nodes.get('relaySendButton').disabled, false, 'A pasted answer enables sending');
+  let answerBody = null;
+  context.fetch = async (url, options) => {
+    answerBody = {url, body: JSON.parse(options.body)};
+    return {ok: true, json: async () => ({run: 'run-1', accepted: true, chars: 19})};
+  };
+  await run('sendRelayAnswer()');
+  assert.match(answerBody.url, /\/api\/runs\/run-1\/answer$/);
+  assert.deepEqual(answerBody.body, {answer: '### FILE: app.py'});
+  assert.equal(nodes.get('relayPanel').hidden, true, 'The panel closes after the answer is delivered');
+  assert.match(html, /id="relayPanel"/);
+  assert.match(html, /value="chatgpt"/);
+  assert.match(html, /id="limitFallback"/);
+
   run('state.jobId = null; applySettings = () => {}; showRolePrompt = () => {};');
   context.fetch = async url => ({ok: true, json: async () => url === '/api/status'
     ? {active_job: 'restored-run', professions: [], settings: {}, role_prompts: {}}

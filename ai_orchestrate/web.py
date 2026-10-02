@@ -16,7 +16,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 from . import autofill as autofill_module
-from . import chatgpt_bridge, env_setup, projects as project_catalog, secrets
+from . import chatgpt_bridge, env_setup, projects as project_catalog, relay as relay_module, secrets
 from .core import (
     OrchestratorError,
     configured_lanes,
@@ -63,7 +63,7 @@ from .workflow import WorkflowRequest, WorkflowStopped, run_workflow, suggest_ch
 MAX_REQUEST_BYTES = 1_000_000
 MAX_EVENTS_PER_JOB = 1600
 MAX_RETAINED_JOBS = 20
-_ACTIVE_STATUSES = {"queued", "running", "merging", "awaiting_confirmation"}
+_ACTIVE_STATUSES = {"queued", "running", "merging", "awaiting_confirmation", "awaiting_answer"}
 _TERMINAL_STATUSES = {"complete", "incomplete", "failed", "cancelled"}
 
 
@@ -104,6 +104,7 @@ class RunJob:
     tokens_spent: int = 0
     prompt_tokens_spent: int = 0
     usage_unknown: bool = False
+    relay: relay_module.ManualRelay | None = None
 
 
 @dataclass
@@ -362,6 +363,9 @@ class RunManager:
             previous = job.status
             job.status = "running"
             job.cancel.clear()
+            if job.relay is not None:
+                # Отменённый ранее мост снова готов ждать ответ из обычного чата.
+                job.relay.reset()
             self._active_job = job.id
         try:
             yield job
@@ -461,10 +465,15 @@ class RunManager:
                 options[limit] = settings[limit] - spent
                 if options[limit] < 1:
                     raise WorkflowStopped(f"Лимит {limit} исчерпан; мост не может обходить бюджет задачи.")
+            if options.get("executor") == "chatgpt" and job.relay is None:
+                # Ручной ревьюер не сможет задать вопрос без открытого моста — тогда
+                # повторная проверка идёт обычным путём Codex/API.
+                options["executor"] = "codex"
             options.update(repo=worktree.path, task=_task_with_project_context(
                 task_with_github_context(job.submission.task, job.submission.github_item)
                 if job.submission.github_item else job.submission.task, job.submission.project_context),
-                checks=job.submission.checks, allow_dirty=True, router="local", lane=None, max_repairs=0)
+                checks=job.submission.checks, allow_dirty=True, router="local", lane=None, max_repairs=0,
+                relay=job.relay)
             verification = run_workflow(WorkflowRequest(**options), verification_only=True,
                                         review_base=worktree.base_sha,
                                         emit=lambda event: self._workflow_event(job, event),
@@ -704,7 +713,7 @@ class RunManager:
             if not parts or not shutil.which(parts[0]):
                 raise OrchestratorError(f"Команда проверки не найдена: {command}")
         usage_today = tokens_for_date(self._usage_path_for(settings))
-        if usage_today >= settings["daily_token_budget"]:
+        if usage_today >= settings["daily_token_budget"] and settings["executor"] != "chatgpt":
             raise OrchestratorError(
                 f"Дневной лимит уже израсходован: {usage_today:,}/{settings['daily_token_budget']:,} токенов."
             )
@@ -731,9 +740,12 @@ class RunManager:
     def cancel(self, job_id: str) -> bool:
         with self._lock:
             job = self._jobs.get(job_id)
-            if job is None or job.status not in {"queued", "running"}:
+            if job is None or job.status not in {"queued", "running", "awaiting_answer"}:
                 return False
             job.cancel.set()
+            if job.relay is not None:
+                # Разбудить рабочий поток, который ждёт ответа из обычного ChatGPT.
+                job.relay.cancel()
             self._append_event(job, {
                 "event": "cancel.requested", "stage": "final", "role": "Оркестратор",
                 "message": "Запрошена отмена; текущая команда будет остановлена или завершится первой.", "data": {},
@@ -779,6 +791,27 @@ class RunManager:
             thread.start()
             return True
 
+    def answer(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Принять ответ, который пользователь скопировал из обычного ChatGPT."""
+        if not isinstance(payload, dict):
+            raise OrchestratorError("Запрос должен быть JSON-объектом.")
+        run_id = str(payload.get("run") or "").strip()
+        answer = payload.get("answer", "")
+        if not isinstance(answer, str) or not answer.strip():
+            raise OrchestratorError("Вставь ответ ChatGPT в поле answer.")
+        if len(answer) > chatgpt_bridge.MAX_ANSWER_CHARS:
+            raise OrchestratorError(f"Ответ длиннее {chatgpt_bridge.MAX_ANSWER_CHARS} символов.")
+        with self._lock:
+            job = self._jobs.get(run_id)
+            relay = job.relay if job is not None else None
+        if job is None or relay is None:
+            raise OrchestratorError("У этого запуска нет шага, который ждёт ответ из обычного ChatGPT.")
+        if not relay.deliver(answer):
+            raise OrchestratorError(
+                "Сейчас ответ не ожидается: шаг уже получил ответ или ожидание остановлено."
+            )
+        return {"run": job.id, "accepted": True, "chars": len(answer)}
+
     def fetch(self, job_id: str, after: int = 0) -> dict[str, Any] | None:
         with self._lock:
             job = self._jobs.get(job_id)
@@ -797,6 +830,8 @@ class RunManager:
                 "can_confirm": job.status == "awaiting_confirmation" and bool(job.result and job.result.get("commit_sha")),
                 "can_bridge": job.status in {"awaiting_confirmation", "incomplete", "failed", "cancelled"} and job.worktree is not None and job.worktree.path.is_dir(),
                 "can_discard": job.status in {"awaiting_confirmation", "incomplete", "failed", "cancelled"} and job.worktree is not None,
+                "manual": job.relay.public() if job.relay is not None else None,
+                "can_answer": bool(job.relay is not None and job.relay.waiting()),
                 "last_event_id": job.next_event_id - 1,
             }
 
@@ -815,6 +850,12 @@ class RunManager:
         with self._lock:
             data = event.get("data") or {}
             previous = job.result or {}
+            # Ручной мост: пока ждём вставленный ответ, задача остаётся активной,
+            # но стартовать новую нельзя — иначе очередь заданий станет неопределённой.
+            if event.get("event") == "manual.requested":
+                job.status = "awaiting_answer"
+            elif event.get("event") == "manual.answered" and job.status == "awaiting_answer":
+                job.status = "running"
             if event.get("event") == "model.started":
                 job.model_calls_spent = max(job.model_calls_spent, previous.get("model_calls", 0)) + 1
                 job.prompt_tokens_spent = max(job.prompt_tokens_spent, previous.get("prompt_estimate", 0)) + data.get("prompt_estimate", 0)
@@ -922,6 +963,14 @@ class RunManager:
             )
             workflow_task = _task_with_project_context(workflow_task, job.submission.project_context)
             settings = job.submission.settings
+            # Ручной мост нужен либо как основной исполнитель, либо как обход
+            # исчерпанного лимита Codex/API. Промпт и ответ переносит человек.
+            if settings["executor"] == "chatgpt" or settings["limit_fallback"] == "chatgpt":
+                job.relay = relay_module.ManualRelay(
+                    on_event=lambda event: self._workflow_event(job, event),
+                    cancel_event=job.cancel,
+                    timeout=settings["relay_timeout"],
+                )
             workflow_request = WorkflowRequest(
                 repo=worktree.path,
                 task=workflow_task,
@@ -945,6 +994,8 @@ class RunManager:
                 api_model=settings["api_model"],
                 api_base_url=settings["api_base_url"],
                 api_max_rounds=settings["api_max_rounds"],
+                limit_fallback=settings["limit_fallback"],
+                relay=job.relay,
             )
             result = run_workflow(
                 workflow_request,
@@ -1565,6 +1616,15 @@ def make_handler(manager: RunManager) -> type[BaseHTTPRequestHandler]:
                         self._json(202, {"merge_started": True})
                     else:
                         self._json(409, {"error": "Слияние нельзя подтвердить: задача не готова или уже обрабатывается."})
+                    return
+                if len(parts) == 4 and parts[3] == "answer":
+                    payload = _json_body(self)
+                    if payload is None:
+                        return
+                    try:
+                        self._json(200, manager.answer({**payload, "run": parts[2]}))
+                    except OrchestratorError as exc:
+                        self._json(409, {"error": redact_data(str(exc))})
                     return
                 if len(parts) == 4 and parts[3] == "discard":
                     if manager.discard(parts[2]):

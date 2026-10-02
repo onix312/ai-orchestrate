@@ -56,6 +56,18 @@ class SettingsTests(unittest.TestCase):
         self.assertTrue(settings["save_journal"])
         self.assertEqual(settings["mode"], "full")
 
+    def test_chatgpt_executor_and_limit_fallback_are_validated(self):
+        settings = normalize_settings({"executor": "chatgpt", "limit_fallback": "chatgpt"})
+        self.assertEqual(settings["executor"], "chatgpt")
+        self.assertEqual(settings["limit_fallback"], "chatgpt")
+        self.assertGreaterEqual(settings["relay_timeout"], 120)
+        self.assertEqual(normalize_settings({"limit_fallback": "api"})["limit_fallback"], "api")
+        self.assertEqual(normalize_settings({"limit_fallback": "off"})["limit_fallback"], "off")
+        for bad in ({"executor": "manual"}, {"limit_fallback": "auto"}, {"relay_timeout": 5},
+                    {"relay_timeout": "3600"}):
+            with self.subTest(bad=bad), self.assertRaises(OrchestratorError):
+                normalize_settings(bad)
+
 
 if __name__ == "__main__":
     unittest.main()
