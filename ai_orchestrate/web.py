@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -13,7 +14,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 from . import autofill as autofill_module
-from . import env_setup, projects as project_catalog, secrets
+from . import chatgpt_bridge, env_setup, projects as project_catalog, secrets
 from .core import (
     OrchestratorError,
     configured_lanes,
@@ -21,6 +22,7 @@ from .core import (
     git_snapshot,
     jev_choice,
     review_passed,
+    run_checks,
     split_command,
     state_dir,
     truncate_text,
@@ -191,7 +193,14 @@ class RunManager:
         if refresh:
             env_setup.clear_auth_cache()
         secrets.activate_stored_jev_key()
-        return env_setup.environment_report(path_added=added)
+        for provider_id in secrets.LLM_PROVIDERS:
+            secrets.activate_stored_key(provider_id)
+        try:
+            settings = self.settings_store.load()
+        except OrchestratorError:
+            settings = default_settings()
+        return env_setup.environment_report(path_added=added, executor=settings["executor"],
+                                            api_base_url=settings["api_base_url"])
 
     def start_setup(self, payload: dict[str, Any]) -> SetupJob:
         if not isinstance(payload, dict):
@@ -256,6 +265,144 @@ class RunManager:
         if not isinstance(key, str) or not key.strip():
             raise OrchestratorError("Передай ключ в поле key или clear: true.")
         return secrets.save_jev_key(key)
+
+    def keys_status(self) -> dict[str, Any]:
+        """Status of every stored provider key — masked, never the key itself."""
+        secrets.activate_stored_jev_key()
+        for provider_id in secrets.LLM_PROVIDERS:
+            secrets.activate_stored_key(provider_id)
+        return {"keys": secrets.all_key_status()}
+
+    def save_provider_key(self, provider_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if provider_id not in secrets.PROVIDERS:
+            raise OrchestratorError(f"Неизвестный провайдер: {provider_id}")
+        if not isinstance(payload, dict):
+            raise OrchestratorError("Запрос должен быть JSON-объектом.")
+        if payload.get("clear"):
+            return {"keys": secrets.all_key_status(), "changed": secrets.clear_key(provider_id)}
+        key = payload.get("key")
+        if not isinstance(key, str) or not key.strip():
+            raise OrchestratorError("Передай ключ в поле key или clear: true.")
+        return {"keys": secrets.all_key_status(), "changed": secrets.save_key(provider_id, key)}
+
+    def _bridge_job(self, payload: dict[str, Any]) -> RunJob:
+        if not isinstance(payload, dict):
+            raise OrchestratorError("Запрос должен быть JSON-объектом.")
+        job_id = str(payload.get("run") or "")
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                raise OrchestratorError("Задача не найдена.")
+            if job.worktree is None or not job.worktree.path.is_dir():
+                raise OrchestratorError("У этой задачи нет рабочей копии — мост ChatGPT недоступен.")
+            if job.status in {"queued", "running", "merging"}:
+                raise OrchestratorError("Дождись завершения текущего запуска перед использованием моста ChatGPT.")
+            return job
+
+    def _bridge_checks(self, job: RunJob) -> list[dict[str, Any]]:
+        """Run the project's own checks inside the worktree, reporting each one to the timeline."""
+        def on_event(event: str, data: dict[str, Any]) -> None:
+            with self._lock:
+                self._append_event(job, {
+                    "event": event, "stage": "review", "role": "Мост ChatGPT",
+                    "message": (f"Запускаю {data.get('command', '')}" if event == "check.started"
+                                else f"Проверка завершена: exit {data.get('returncode', '?')}"),
+                    "data": data,
+                })
+
+        checks = run_checks(job.worktree.path, job.submission.checks,
+                            timeout=job.submission.settings["check_timeout"], on_event=on_event)
+        with self._lock:
+            for check in checks:
+                self._append_event(job, {
+                    "event": "check.result", "stage": "review", "role": "Мост ChatGPT",
+                    "message": f"{'PASS' if check['returncode'] == 0 else 'FAIL'} — {check['command']}",
+                    "data": {"command": check["command"], "returncode": check["returncode"],
+                             "output": truncate_text(check.get("output", ""), 1000)},
+                })
+        return checks
+
+    def bridge_prompt(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Build the one message the user pastes into the ChatGPT app."""
+        job = self._bridge_job(payload)
+        worktree = job.worktree
+        result = job.result or {}
+        try:
+            diff, status = git_snapshot(worktree.path, base=worktree.base_sha)
+        except (subprocess.CalledProcessError, OSError):
+            diff, status = git_snapshot(worktree.path)
+        checks = self._bridge_checks(job)
+        prompt = chatgpt_bridge.build_bridge_prompt(
+            job.submission.task, diff, status, checks,
+            plan=str(result.get("plan", "")), review=str(result.get("review", "")),
+        )
+        self._append_event(job, {
+            "event": "bridge.prompt", "stage": "review", "role": "Мост ChatGPT",
+            "message": "Промпт для ChatGPT готов: скопируй его в приложение вручную.",
+            "data": {"chars": len(prompt), "failed_checks": sum(1 for item in checks if item["returncode"] != 0)},
+        })
+        return {"run": job.id, "prompt": prompt, "chars": len(prompt),
+                "failed_checks": [{"command": item["command"], "returncode": item["returncode"]}
+                                  for item in checks if item["returncode"] != 0]}
+
+    def bridge_apply(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Apply a pasted ChatGPT answer inside the worktree, then re-run the project's own checks."""
+        job = self._bridge_job(payload)
+        answer = payload.get("answer", "")
+        if not isinstance(answer, str) or not answer.strip():
+            raise OrchestratorError("Вставь ответ ChatGPT в поле answer.")
+        worktree = job.worktree
+        report = chatgpt_bridge.apply_operations(worktree.path, chatgpt_bridge.parse_answer(answer))
+        with self._lock:
+            self._append_event(job, {
+                "event": "bridge.applied", "stage": "review", "role": "Мост ChatGPT",
+                "message": (f"Из ответа ChatGPT применено файлов: {len(report.applied)}."
+                            + (f" Отклонено: {len(report.rejected)}." if report.rejected else "")),
+                "data": report.public(),
+            })
+        checks = self._bridge_checks(job)
+        green = bool(checks) and all(item["returncode"] == 0 for item in checks)
+        summary: dict[str, Any] = {
+            "run": job.id, "report": report.public(), "checks_passed": green,
+            "checks": [{"command": item["command"], "returncode": item["returncode"]} for item in checks],
+        }
+        if not green:
+            self._append_event(job, {
+                "event": "bridge.checks_failed", "stage": "review", "role": "Мост ChatGPT",
+                "message": "Проверки после ответа ChatGPT всё ещё не проходят; слияние недоступно.",
+                "data": summary["checks"],
+            })
+            return summary
+
+        title = next((line.strip() for line in job.submission.task.splitlines() if line.strip()), "AI-assisted change")
+        commit = commit_worktree(worktree, f"ai-orchestrate: {title}")
+        result = dict(job.result or {})
+        result.update({
+            "status": "complete",
+            "branch": worktree.branch,
+            "base_branch": worktree.base_branch,
+            "worktree_path": str(worktree.path),
+            "merge_target": job.submission.settings["merge_target"],
+            "changed_files": commit["files"],
+            "commit_sha": commit["sha"],
+            "merge_status": "not_needed" if not commit["committed"] else "pending",
+            "bridge": {"applied": report.applied, "rejected": report.rejected},
+        })
+        with self._lock:
+            job.result = result
+        if not commit["committed"]:
+            self._append_event(job, {
+                "event": "run.completed", "stage": "final", "role": "Итог",
+                "message": "Проверки прошли; новых изменений для слияния нет.", "data": result,
+            })
+            with self._lock:
+                job.status = "complete"
+            self._cleanup(job, delete_branch=True, force=False)
+            self._record_journal(job)
+            return summary
+        self._await_confirmation(
+            job, "Ответ ChatGPT применён, проверки прошли. Проверь diff и нажми «Подтвердить слияние».")
+        return summary
 
     def projects(self) -> dict[str, Any]:
         settings = self.settings_store.load()
@@ -390,6 +537,17 @@ class RunManager:
             raise OrchestratorError("Для задачи из GitHub выбери цель слияния «GitHub Pull Request».")
         if settings["router"] == "jev" and settings["lane"]:
             raise OrchestratorError("Выбери либо Jev-роутер, либо ручную полосу модели.")
+        if settings["executor"] == "api":
+            if not str(settings["api_model"]).strip():
+                raise OrchestratorError("Для API-исполнителя укажи имя модели в настройках.")
+            base_url = str(settings["api_base_url"]).strip()
+            remote = not any(token in base_url for token in ("127.0.0.1", "localhost", "0.0.0.0", "[::1]"))
+            provider_id = "openrouter" if "openrouter.ai" in base_url.lower() else "openai"
+            if remote and not secrets.active_key(provider_id):
+                raise OrchestratorError(
+                    "Нет ключа API: сохрани ключ в разделе «Ключи API» или укажи локальный сервер "
+                    "(Ollama: http://127.0.0.1:11434/v1)."
+                )
         if settings["router"] == "jev" and not secrets.active_jev_key():
             raise OrchestratorError(
                 "Триаж Jev требует API-ключ: вставь его в разделе «Ключ Jev» или выбери бесплатный локальный триаж."
@@ -638,6 +796,10 @@ class RunManager:
                 codex_timeout=settings["codex_timeout"],
                 check_timeout=settings["check_timeout"],
                 allow_dirty=False,
+                executor=settings["executor"],
+                api_model=settings["api_model"],
+                api_base_url=settings["api_base_url"],
+                api_max_rounds=settings["api_max_rounds"],
             )
             result = run_workflow(
                 workflow_request,
@@ -1087,6 +1249,12 @@ def make_handler(manager: RunManager) -> type[BaseHTTPRequestHandler]:
                 except OrchestratorError as exc:
                     self._json(500, {"error": str(exc)})
                 return
+            if parsed.path == "/api/keys":
+                try:
+                    self._json(200, manager.keys_status())
+                except OrchestratorError as exc:
+                    self._json(500, {"error": str(exc)})
+                return
             if parsed.path == "/api/projects":
                 try:
                     self._json(200, manager.projects())
@@ -1172,6 +1340,28 @@ def make_handler(manager: RunManager) -> type[BaseHTTPRequestHandler]:
                 except OrchestratorError as exc:
                     self._json(400, {"error": str(exc)})
                 return
+            if parsed.path.startswith("/api/keys/"):
+                provider_id = parsed.path.strip("/").split("/")[-1]
+                payload = _json_body(self)
+                if payload is None:
+                    return
+                try:
+                    self._json(200, manager.save_provider_key(provider_id, payload))
+                except OrchestratorError as exc:
+                    self._json(400, {"error": str(exc)})
+                return
+            if parsed.path in {"/api/bridge/prompt", "/api/bridge/apply"}:
+                payload = _json_body(self)
+                if payload is None:
+                    return
+                try:
+                    if parsed.path.endswith("/prompt"):
+                        self._json(200, manager.bridge_prompt(payload))
+                    else:
+                        self._json(200, manager.bridge_apply(payload))
+                except OrchestratorError as exc:
+                    self._json(400, {"error": str(exc)})
+                return
             if parsed.path == "/api/autofill":
                 payload = _json_body(self)
                 if payload is None:
@@ -1219,7 +1409,7 @@ def make_handler(manager: RunManager) -> type[BaseHTTPRequestHandler]:
 
 def serve(
     host: str = "127.0.0.1",
-    port: int = 8765,
+    port: int = 8790,
     workspace_root: Path | None = None,
     usage_path: Path | None = None,
     settings_path: Path | None = None,

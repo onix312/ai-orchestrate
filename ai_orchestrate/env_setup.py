@@ -336,15 +336,20 @@ def _tool_report(key: str, *, title: str, purpose: str, required: bool,
     return report
 
 
-def environment_report(*, include_auth: bool = True, path_added: list[str] | None = None) -> dict[str, Any]:
-    """Describe everything the panel needs to run, with a fix for each gap."""
+def environment_report(*, include_auth: bool = True, path_added: list[str] | None = None,
+                       executor: str = "codex", api_base_url: str = "") -> dict[str, Any]:
+    """Describe everything the panel needs to run, with a fix for each gap.
+
+    ``executor`` decides which executor is a blocker: ``api`` runs without the Codex CLI.
+    """
+    api_mode = executor == "api"
     tools = {
         "git": _tool_report(
             "git", title="Git", required=True,
             purpose="Создаёт изолированную ветку и worktree, выполняет слияние.",
         ),
         "codex": _tool_report(
-            "codex", title="Codex CLI", required=True,
+            "codex", title="Codex CLI", required=not api_mode,
             purpose="Исполнитель: пишет код и запускает команды в изолированном worktree.",
             login_command="codex login",
             authenticated=codex_authenticated() if include_auth else None,
@@ -362,21 +367,38 @@ def environment_report(*, include_auth: bool = True, path_added: list[str] | Non
     }
     jev = secrets.jev_key_status()
 
+    api_keys = secrets.all_key_status()
+    remote_endpoint = not any(token in (api_base_url or "").lower()
+                              for token in ("127.0.0.1", "localhost", "0.0.0.0", "[::1]"))
+    api_key_provider = "openrouter" if "openrouter.ai" in (api_base_url or "").lower() else "openai"
+
     problems: list[dict[str, Any]] = []
     if not tools["codex"]["found"]:
         problems.append({
-            "id": "codex.missing", "tool": "codex", "severity": "blocker",
+            "id": "codex.missing", "tool": "codex", "severity": "optional" if api_mode else "blocker",
             "title": "Codex CLI не найден",
-            "detail": "Без Codex CLI панель не может выполнить ни одну задачу.",
+            "detail": ("Выбран API-исполнитель, поэтому Codex CLI не обязателен. Он понадобится, "
+                       "если вернёшь исполнителя «Codex CLI»."
+                       if api_mode else "Без Codex CLI панель не может выполнить ни одну задачу."),
             "fix": tools["codex"]["install"]["command"] or "npm install -g @openai/codex",
             "can_install": bool(tools["codex"]["install"]["command"]),
         })
     elif not tools["codex"]["login"]["authenticated"] and include_auth:
         problems.append({
-            "id": "codex.login", "tool": "codex", "severity": "blocker",
+            "id": "codex.login", "tool": "codex", "severity": "optional" if api_mode else "blocker",
             "title": "Codex CLI без входа",
-            "detail": "CLI установлен, но не авторизован. Вход интерактивный — выполни команду в терминале.",
+            "detail": ("Выбран API-исполнитель: вход в Codex CLI для запуска не нужен."
+                       if api_mode else
+                       "CLI установлен, но не авторизован. Вход интерактивный — выполни команду в терминале."),
             "fix": "codex login", "can_install": False,
+        })
+    if api_mode and remote_endpoint and not api_keys[api_key_provider]["available"]:
+        problems.append({
+            "id": "api.key", "tool": api_key_provider, "severity": "blocker",
+            "title": f"API-исполнитель без ключа ({api_keys[api_key_provider]['label']})",
+            "detail": "Для внешнего API нужен ключ. Локальные Ollama и LM Studio работают без ключа.",
+            "fix": "Вставь ключ в раздел «Ключи API» или укажи локальный сервер, например http://127.0.0.1:11434/v1.",
+            "can_install": False,
         })
     if not tools["git"]["found"]:
         problems.append({
@@ -415,6 +437,8 @@ def environment_report(*, include_auth: bool = True, path_added: list[str] | Non
         "path_added": path_added or [],
         "tools": tools,
         "jev": jev,
+        "executor": "api" if api_mode else "codex",
+        "api_keys": api_keys,
         "problems": problems,
         "blockers": [item for item in problems if item["severity"] == "blocker"],
         "ready": not any(item["severity"] == "blocker" for item in problems),
@@ -451,6 +475,15 @@ def doctor_report() -> list[tuple[str, bool, str, str]]:
          if jev["available"] else "ключ не задан · опционально"),
         "" if jev["available"] else "python -m ai_orchestrate jev-key set",
     ))
+    for provider_id in secrets.LLM_PROVIDERS:
+        item = report["api_keys"][provider_id]
+        rows.append((
+            f"{item['label']} API",
+            True,
+            ("ключ найден (" + ("окружение" if item["source"] == "environment" else item["path"]) + ")"
+             if item["available"] else "ключ не задан · нужен только для внешнего API"),
+            "" if item["available"] else f"python -m ai_orchestrate keys set {provider_id}",
+        ))
     if report["path_added"]:
         rows.append(("PATH", True, "автодобавлены каталоги: " + ", ".join(report["path_added"]), ""))
     return rows

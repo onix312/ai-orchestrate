@@ -24,7 +24,7 @@ class SecretsTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         os.environ.pop("TYPESAFE_API_KEY", None)
-        secrets._activated_from_store = False
+        secrets.reset_activation_state()
 
     def test_key_is_stored_outside_settings_json_with_private_permissions(self):
         status = secrets.save_jev_key(f"  {KEY}\n")
@@ -62,7 +62,7 @@ class SecretsTests(unittest.TestCase):
     def test_clear_keeps_an_exported_environment_key_and_says_so(self):
         secrets.save_jev_key(KEY)
         with patch.dict(os.environ, {"TYPESAFE_API_KEY": KEY}):
-            secrets._activated_from_store = False
+            secrets.reset_activation_state()
             status = secrets.clear_jev_key()
             self.assertTrue(status["available"])
             self.assertIn("окружении", status["note"])

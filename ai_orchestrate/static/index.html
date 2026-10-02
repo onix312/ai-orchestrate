@@ -331,6 +331,27 @@
           <span class="key-state" id="jevKeyHint">Ключ нужен только для Jev-триажа и автослияния после APPROVE. Без него работают бесплатный локальный триаж и слияние по кнопке.</span>
         </section>
 
+        <section class="keycard" id="apiKeysPanel">
+          <div class="label-row"><label for="openaiKey" style="margin:0">Ключи API · OpenAI и OpenRouter</label><span class="field-hint" id="apiKeysSource">проверяю…</span></div>
+          <div class="key-row">
+            <input id="openaiKey" type="password" autocomplete="off" spellcheck="false" placeholder="OPENAI_API_KEY, например sk-…">
+            <button class="icon-button" type="button" data-toggle-key="openaiKey" title="Показать или скрыть ключ">👁</button>
+          </div>
+          <div class="action-row key-actions">
+            <button type="button" id="saveOpenaiKey">Сохранить OpenAI</button>
+            <button type="button" class="danger" id="clearOpenaiKey">Удалить</button>
+          </div>
+          <div class="key-row" style="margin-top:8px">
+            <input id="openrouterKey" type="password" autocomplete="off" spellcheck="false" placeholder="OPENROUTER_API_KEY, например sk-or-…">
+            <button class="icon-button" type="button" data-toggle-key="openrouterKey" title="Показать или скрыть ключ">👁</button>
+          </div>
+          <div class="action-row key-actions">
+            <button type="button" id="saveOpenrouterKey">Сохранить OpenRouter</button>
+            <button type="button" class="danger" id="clearOpenrouterKey">Удалить</button>
+          </div>
+          <span class="key-state" id="apiKeysHint">Ключи хранятся в отдельных файлах с правами 0600 и не попадают в settings.json. Для локальных Ollama и LM Studio ключ не нужен.</span>
+        </section>
+
         <form id="runForm">
           <div class="group-head"><span class="group-num">1</span><h3>Проект</h3><span class="group-note" id="rootHint"></span></div>
           <div class="field" style="margin-top:8px">
@@ -378,6 +399,20 @@
             <label for="router">Триаж задачи <span class="field-hint">кто выбирает модель</span></label>
             <select id="router"><option value="local">Локально · бесплатно</option><option value="jev" id="jevOption">Jev · внешний вызов (нужен ключ)</option></select>
             <div class="field-hint" style="margin-top:5px">Локальный триаж бесплатный. Jev получает текст задачи и возвращает уровень модели с уверенностью — для него нужен ключ выше.</div>
+          </div>
+          <div class="field">
+            <label for="executor">Исполнитель <span class="field-hint">кто правит файлы</span></label>
+            <select id="executor"><option value="codex">Codex CLI · вход через codex login</option><option value="api">OpenAI-совместимый API · OpenAI, OpenRouter, Ollama, LM Studio</option></select>
+            <div class="field-hint" style="margin-top:5px">Codex CLI работает по подписке Codex/ChatGPT через <code>codex login</code>. API-исполнитель не требует Codex: нужен только ключ или локальный сервер.</div>
+          </div>
+          <div class="field" id="apiFields" hidden>
+            <label for="apiModel">Модель API <span class="field-hint">имя модели на выбранном сервере</span></label>
+            <input id="apiModel" type="text" maxlength="120" placeholder="gpt-5.1 · qwen2.5-coder:7b · llama3.1">
+            <div class="two-col" style="margin-top:8px">
+              <div class="field"><label for="apiBaseUrl">Адрес API <span class="field-hint">пусто = api.openai.com/v1</span></label><input id="apiBaseUrl" type="text" maxlength="2048" placeholder="http://127.0.0.1:11434/v1"></div>
+              <div class="field"><label for="apiMaxRounds">Раундов инструмента на этап <span class="field-hint">1–40</span></label><input id="apiMaxRounds" type="number" min="1" max="40" value="12"></div>
+            </div>
+            <div class="field-hint">Ollama: <code>http://127.0.0.1:11434/v1</code>, LM Studio: <code>http://127.0.0.1:1234/v1</code> — ключ не нужен. Для api.openai.com и openrouter.ai ключ обязателен.</div>
           </div>
           <details class="limits">
             <summary>Библиотека готовых промптов ролей</summary>
@@ -565,6 +600,22 @@
             <section class="card panel"><div class="panel-title"><h2>План / критерии</h2><span class="counter">АНАЛИТИК + АРХИТЕКТОР</span></div><div class="plan-body" id="planBody"><span class="plan-empty">В полном цикле появится после этапа планирования.</span></div></section>
             <section class="card panel"><div class="panel-title"><h2>Проверки</h2><span class="counter" id="checkCount">0</span></div><div class="checks-list" id="checksList"><div class="plan-empty">Проверки ещё не запускались.</div></div></section>
             <section class="card panel"><div class="panel-title"><h2>Изменённые файлы</h2><span class="counter" id="fileCount">0</span></div><div class="files-list" id="filesList"><span class="plan-empty">Пока пусто.</span></div></section>
+            <section class="card panel" id="bridgePanel"><div class="panel-title"><h2>Мост ChatGPT</h2><span class="counter">вручную, без автоматизации</span></div>
+              <div class="bridge-body">
+                <span class="plan-empty" id="bridgeHint">Собери промпт после запуска: панель отдаст задачу, diff и падающие проверки. Скопируй текст в приложение ChatGPT, верни ответ сюда — панель применит его в worktree и снова запустит проверки.</span>
+                <div class="action-row key-actions" style="margin-top:8px">
+                  <button type="button" id="bridgePromptButton" disabled>Собрать промпт</button>
+                  <button type="button" id="copyBridgePrompt" disabled>Скопировать</button>
+                </div>
+                <textarea id="bridgePromptText" readonly spellcheck="false" placeholder="Здесь появится текст для ChatGPT."></textarea>
+                <label for="bridgeAnswer" style="margin-top:8px">Ответ ChatGPT <span class="field-hint">блоки ### FILE: или *** Begin Patch</span></label>
+                <textarea id="bridgeAnswer" spellcheck="false" placeholder="Вставь сюда ответ из приложения ChatGPT целиком."></textarea>
+                <div class="action-row key-actions" style="margin-top:8px">
+                  <button type="button" id="bridgeApplyButton" disabled>Применить ответ и проверить</button>
+                </div>
+                <span class="key-state" id="bridgeState">Панель не открывает ChatGPT сама и не читает его cookies: текст переносишь ты.</span>
+              </div>
+            </section>
             <section class="card panel"><div class="panel-title"><h2>Недавняя работа</h2><span class="counter">локальный журнал</span></div><div class="history-list" id="historyList"><span class="plan-empty">Пока нет завершённых запусков.</span></div></section>
           </div>
         </div>
@@ -576,7 +627,7 @@
     const $ = (id) => document.getElementById(id);
     const stepIds = ["preflight", "routing", "planning", "implementation", "testing", "review", "final"];
     const stageOrder = Object.fromEntries(stepIds.map((id, i) => [id, i]));
-    let state = { mode: "full", status: null, jobId: null, lastEvent: 0, calls: 0, maxCalls: 0, tokens: 0, dailyTokens: null, startAt: 0, timer: null, polling: false, files: new Set(), checkMap: new Map(), settingsTimer: null, settingsLoaded: false, settingsSaving: false, githubItem: null, projectContextRepo: "", env: null, jevKey: null, projects: null };
+    let state = { mode: "full", status: null, jobId: null, lastEvent: 0, calls: 0, maxCalls: 0, tokens: 0, dailyTokens: null, startAt: 0, timer: null, polling: false, files: new Set(), checkMap: new Map(), settingsTimer: null, settingsLoaded: false, settingsSaving: false, githubItem: null, projectContextRepo: "", env: null, jevKey: null, projects: null, apiKeys: null };
 
     function toast(message) {
       const node = $("toast"); node.textContent = message; node.classList.add("show");
@@ -875,6 +926,8 @@
         project_context: state.projectContextRepo === $("repo").value.trim() ? $("projectContext").value : undefined,
         mode: state.mode, profession: $("profession").value, router: $("router").value,
         lane: $("lane").value, luna_model: $("lunaModel").value.trim(), sol_model: $("solModel").value.trim(),
+        executor: $("executor").value, api_model: $("apiModel").value.trim(),
+        api_base_url: $("apiBaseUrl").value.trim(), api_max_rounds: Number($("apiMaxRounds").value),
         review_model: $("reviewModel").value.trim(), max_repairs: Number($("repairs").value),
         max_model_calls: Number($("maxCalls").value), prompt_token_budget: Number($("promptBudget").value),
         max_run_tokens: Number($("runBudget").value), daily_token_budget: Number($("dayBudget").value),
@@ -886,6 +939,93 @@
         save_journal: $("saveJournal").checked, usage_log_path: $("usageLogPath").value.trim(),
         journal_path: $("journalPath").value.trim(),
       };
+    }
+    function syncExecutorFields() {
+      const api = $("executor").value === "api";
+      $("apiFields").hidden = !api;
+      $("apiModel").required = api;
+      $("jevOption").disabled = api;
+      if (api && $("router").value === "jev") { $("router").value = "local"; }
+      const mode = $("costPreview");
+      if (mode && api && !$("apiModel").value.trim()) {
+        mode.textContent = "API-исполнитель: укажи имя модели (и ключ или локальный сервер).";
+      }
+    }
+    async function loadApiKeys() {
+      try {
+        const response = await fetch("/api/keys", {cache:"no-store"});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось прочитать ключи");
+        const keys = data.keys || {};
+        ["openai", "openrouter"].forEach(name => {
+          const item = keys[name] || {};
+          const input = $(name === "openai" ? "openaiKey" : "openrouterKey");
+          input.value = "";
+          input.placeholder = item.available ? `Сохранён: ${item.masked}` : input.dataset.empty || input.placeholder;
+          input.dataset.empty = input.dataset.empty || (name === "openai" ? "OPENAI_API_KEY, например sk-…" : "OPENROUTER_API_KEY, например sk-or-…");
+        });
+        const openai = keys.openai || {}, openrouter = keys.openrouter || {};
+        $("apiKeysSource").textContent = [
+          openai.available ? `OpenAI: ${openai.source === "environment" ? "из окружения" : "файл 0600"}` : "OpenAI: нет ключа",
+          openrouter.available ? `OpenRouter: ${openrouter.source === "environment" ? "из окружения" : "файл 0600"}` : "OpenRouter: нет ключа",
+        ].join(" · ");
+        $("apiKeysHint").textContent = openai.available || openrouter.available
+          ? "Ключ хранится в файле с правами 0600 и не попадает в settings.json. Маска показана вместо самого ключа."
+          : "Ключей нет: доступен только локальный сервер (Ollama, LM Studio) или Codex CLI.";
+        state.apiKeys = keys;
+      } catch (error) { $("apiKeysSource").textContent = `Ключи не读: ${error.message}`; }
+    }
+    async function postKey(provider, body) {
+      const response = await fetch(`/api/keys/${encodeURIComponent(provider)}`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Не удалось сохранить ключ");
+      const changed = data.changed || {};
+      toast(changed.note || "Готово");
+      await loadApiKeys();
+    }
+    function syncBridgeButtons() {
+      const job = state.jobId;
+      const usable = Boolean(job) && state.status !== null;
+      $("bridgePromptButton").disabled = !usable;
+      $("bridgeApplyButton").disabled = !usable || !$("bridgeAnswer").value.trim();
+      $("copyBridgePrompt").disabled = !$("bridgePromptText").value;
+    }
+    async function buildBridgePrompt() {
+      if (!state.jobId) return;
+      $("bridgeState").textContent = "Собираю задачу, diff и текущие проверки…";
+      $("bridgePromptButton").disabled = true;
+      try {
+        const response = await fetch("/api/bridge/prompt", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({run: state.jobId})});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось собрать промпт");
+        $("bridgePromptText").value = data.prompt;
+        const failed = (data.failed_checks || []).length;
+        $("bridgeState").textContent = `Промпт готов (${data.chars} символов, падающих проверок: ${failed}). Скопируй его в приложение ChatGPT.`;
+        syncBridgeButtons();
+      } catch (error) { $("bridgeState").textContent = error.message; }
+      finally { syncBridgeButtons(); }
+    }
+    async function applyBridgeAnswer() {
+      if (!state.jobId) return;
+      const answer = $("bridgeAnswer").value;
+      if (!answer.trim()) { toast("Вставь ответ ChatGPT."); return; }
+      $("bridgeState").textContent = "Применяю ответ в изолированном worktree и запускаю проверки…";
+      $("bridgeApplyButton").disabled = true;
+      try {
+        const response = await fetch("/api/bridge/apply", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({run: state.jobId, answer})});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось применить ответ");
+        const report = data.report || {};
+        const applied = (report.applied || []).length, rejected = (report.rejected || []).length;
+        (report.rejected || []).forEach(item => toast(`Отклонено ${item.path}: ${item.error}`));
+        $("bridgeState").textContent = data.checks_passed
+          ? `Файлов применено: ${applied}. Проверки прошли — подтверди слияние.`
+          : `Файлов применено: ${applied}${rejected ? `, отклонено: ${rejected}` : ""}. Проверки не прошли — пришли исправленный ответ.`;
+        $("bridgeAnswer").value = "";
+        loadHistory();
+        await poll();
+      } catch (error) { $("bridgeState").textContent = error.message; }
+      finally { syncBridgeButtons(); }
     }
     function markSettingsDirty() {
       if (!state.settingsLoaded) return;
@@ -925,6 +1065,11 @@
       $("lunaModel").value = s.luna_model || "gpt-6-luna";
       $("solModel").value = s.sol_model || "gpt-6-sol";
       $("reviewModel").value = s.review_model || "";
+      $("executor").value = s.executor || "codex";
+      $("apiModel").value = s.api_model || "";
+      $("apiBaseUrl").value = s.api_base_url || "";
+      $("apiMaxRounds").value = s.api_max_rounds ?? 12;
+      syncExecutorFields();
       $("repairs").value = s.max_repairs ?? 1;
       $("maxCalls").value = s.max_model_calls ?? 5;
       $("promptBudget").value = s.prompt_token_budget ?? 16000;
@@ -1467,6 +1612,27 @@
       }
       updateCostPreview(); markSettingsDirty();
     });
+    $("executor").addEventListener("change", () => { syncExecutorFields(); updateCostPreview(); markSettingsDirty(); });
+    ["apiModel", "apiBaseUrl", "apiMaxRounds"].forEach(id => $(id).addEventListener("change", () => { syncExecutorFields(); markSettingsDirty(); }));
+    ["saveOpenaiKey", "saveOpenrouterKey", "clearOpenaiKey", "clearOpenrouterKey"].forEach(id => {
+      $(id).addEventListener("click", () => {
+        const provider = id.includes("Openrouter") ? "openrouter" : "openai";
+        const body = id.startsWith("clear") ? {clear:true} : {key: $(provider === "openai" ? "openaiKey" : "openrouterKey").value.trim()};
+        if (!id.startsWith("clear") && !body.key) { toast("Вставь ключ или нажми «Удалить»."); return; }
+        postKey(provider, body).catch(error => toast(error.message));
+      });
+    });
+    document.querySelectorAll("[data-toggle-key]").forEach(button => button.addEventListener("click", () => {
+      const input = $(button.dataset.toggleKey);
+      input.type = input.type === "password" ? "text" : "password";
+    }));
+    $("bridgePromptButton").addEventListener("click", buildBridgePrompt);
+    $("bridgeApplyButton").addEventListener("click", applyBridgeAnswer);
+    $("bridgeAnswer").addEventListener("input", syncBridgeButtons);
+    $("copyBridgePrompt").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText($("bridgePromptText").value); toast("Промпт скопирован — вставь его в ChatGPT."); }
+      catch (error) { $("bridgePromptText").select(); toast("Скопируй текст вручную (Ctrl+C)."); }
+    });
     $("lane").addEventListener("change", () => {
       if ($("lane").value && $("router").value === "jev") {
         $("router").value = "local";
@@ -1491,6 +1657,8 @@
     setInterval(() => { if (state.startAt && state.timer) $("timeMetric").textContent = formatTime((Date.now() - state.startAt) / 1000); }, 1000);
     setOrchestraScene("idle");
     updateCostPreview();
+    loadApiKeys();
+    syncBridgeButtons();
     loadStatus();
   </script>
 </body>

@@ -343,12 +343,16 @@ def build_parser() -> argparse.ArgumentParser:
     jev = sub.add_parser("jev-key", help="Store or clear the local Jev API key (never written to settings.json)")
     jev.add_argument("action", choices=("status", "set", "clear"), nargs="?", default="status")
     jev.add_argument("--key", help="Key value; omit to read it from stdin without echoing it")
+    keys = sub.add_parser("keys", help="Show, store or clear provider API keys (openai, openrouter, jev)")
+    keys.add_argument("action", choices=("status", "set", "clear"), nargs="?", default="status")
+    keys.add_argument("provider", choices=("openai", "openrouter", "jev"), nargs="?", default="openai")
+    keys.add_argument("--key", help="Key value; omit to read it from stdin without echoing it")
     usage = sub.add_parser("usage", help="Show token usage tracked from Codex CLI telemetry")
     usage.add_argument("--usage-log", help="Usage JSONL path (default: ~/.ai-orchestrate/usage.jsonl)")
 
     ui = sub.add_parser("ui", help="Open the local visual orchestration dashboard")
     ui.add_argument("--host", default="127.0.0.1", help="Bind address (use 0.0.0.0 only for a trusted preview)")
-    ui.add_argument("--port", type=int, default=8765)
+    ui.add_argument("--port", type=int, default=8790)
     ui.add_argument("--workspace-root", help="Restrict selectable projects to this directory (default: current directory)")
     ui.add_argument("--usage-log", help="Usage JSONL path (default: ~/.ai-orchestrate/usage.jsonl)")
     ui.add_argument("--settings-file", help="Persistent UI settings JSON path (default: ~/.ai-orchestrate/settings.json)")
@@ -499,6 +503,33 @@ def _run_jev_key(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_keys(args: argparse.Namespace) -> int:
+    from . import secrets
+
+    provider_id = args.provider
+    if args.action == "status":
+        for name, status in secrets.all_key_status().items():
+            shown = status["masked"] if status["available"] else "не задан"
+            print(f"{status['label']:<11} {shown}  ({status['note']})")
+        print("Сохранить: python -m ai_orchestrate keys set openai   (ключ читается без эха)")
+        return 0
+    if args.action == "set":
+        raw = args.key
+        if raw is None:
+            if sys.stdin.isatty():
+                import getpass
+
+                raw = getpass.getpass(f"Вставь ключ {secrets.provider(provider_id).label} (ввод не отображается): ")
+            else:
+                raw = sys.stdin.read()
+        status = secrets.save_key(provider_id, raw)
+        print(f"Ключ сохранён: {status['masked']} → {status['path']} (0600)")
+        print("Ключ не попадает в settings.json.")
+        return 0
+    print(secrets.clear_key(provider_id)["note"])
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -517,6 +548,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "jev-key":
         try:
             return _run_jev_key(args)
+        except OrchestratorError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    if args.command == "keys":
+        try:
+            return _run_keys(args)
         except OrchestratorError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
