@@ -71,6 +71,30 @@ class GitHubTests(unittest.TestCase):
         git_call.assert_called_once()
         self.assertEqual(git_call.call_args.args[1], ["push", "origin", "--delete", "agent/job-1"])
 
+    def test_merge_is_pinned_to_the_verified_head(self):
+        repo = GitHubRepository("example/project", "https://github.com/example/project", "main")
+        opened = {"state": "OPEN", "headRefOid": "verified-sha", "headRefName": "agent/job-1",
+                  "baseRefName": "main", "number": 45, "url": "https://github.com/example/project/pull/45"}
+        with patch("ai_orchestrate.github.git", return_value=completed([], "verified-sha")), \
+             patch("ai_orchestrate.github._pr_view", return_value=opened), \
+             patch("ai_orchestrate.github._gh", return_value=completed([])) as gh:
+            publish_and_merge("/tmp/repo", repository=repo, branch="agent/job-1", base_branch="main",
+                              task="task", checks=["test"], item=None, merge_method="squash",
+                              wait_for_checks=True, delete_branch=False, expected_sha="verified-sha")
+        self.assertIn("--match-head-commit", gh.call_args.args[1])
+        self.assertIn("verified-sha", gh.call_args.args[1])
+
+    def test_changed_remote_pr_head_blocks_merge(self):
+        repo = GitHubRepository("example/project", "https://github.com/example/project", "main")
+        with patch("ai_orchestrate.github.git", return_value=completed([], "verified-sha")), \
+             patch("ai_orchestrate.github._pr_view", return_value={"state": "OPEN", "headRefOid": "other"}), \
+             patch("ai_orchestrate.github._gh") as gh:
+            with self.assertRaisesRegex(OrchestratorError, "не совпадает"):
+                publish_and_merge("/tmp/repo", repository=repo, branch="agent/job-1", base_branch="main",
+                                  task="task", checks=["test"], item=None, merge_method="squash",
+                                  wait_for_checks=True, delete_branch=False, expected_sha="verified-sha")
+        gh.assert_not_called()
+
     def test_confirmed_publish_uses_native_auto_merge_and_does_not_bypass_checks(self):
         repo = GitHubRepository("example/project", "https://github.com/example/project", "main")
         calls = []

@@ -4,9 +4,9 @@ One code path serves the OpenAI API, OpenRouter and local OpenAI-compatible serv
 (Ollama, LM Studio) — only ``base_url`` and the key change, and a local server needs no key
 at all. There is no third-party SDK: plain :mod:`urllib`, like the Jev client.
 
-Safety rules mirror the Codex path: the model only ever touches the isolated worktree, every
-path is jailed inside it, child processes get the key-stripped environment from
-:func:`ai_orchestrate.core._codex_env`, and all tool output is redacted and truncated.
+File tools are restricted to the worktree and cannot access Git metadata. This is not
+an OS sandbox: arbitrary model commands are intentionally unavailable. The orchestrator
+runs user-configured checks separately. Tool output is redacted and truncated.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import json
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -24,7 +24,7 @@ from .core import (
     CodexUsage,
     OrchestratorError,
     _redact_secrets,
-    run_checks,
+    redact_data,
     truncate_text,
 )
 
@@ -34,13 +34,6 @@ MAX_FILE_CHARS = 200_000
 MAX_READ_CHARS = 24_000
 MAX_OUTPUT_CHARS = 8_000
 COMMAND_TIMEOUT = 120
-
-# Cheap guardrails: the model works inside a disposable worktree, but there is no reason to
-# let it start something destructive at the machine level.
-BLOCKED_COMMAND_FRAGMENTS = (
-    "rm -rf /", "rm -rf /*", "mkfs", "dd if=", "shutdown", "reboot",
-    ":(){ :|:& };:", "> /dev/sd", "chmod -R 777 /",
-)
 
 TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
@@ -104,20 +97,6 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
-            "name": "run_command",
-            "description": "Run a shell command inside the worktree (tests, linters, git status). Output is truncated.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {"type": "string", "description": "Command line, e.g. 'python -m unittest discover -s tests'."},
-                },
-                "required": ["command"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "finish",
             "description": "Call when the task is done. Provide a short summary of what changed.",
             "parameters": {
@@ -134,7 +113,8 @@ READ_ONLY_TOOLS = {"read_file", "list_dir", "finish"}
 SYSTEM_PROMPT = (
     "You are a careful software engineer working inside an isolated Git worktree. "
     "Read the code before changing it, make the smallest change that satisfies the task, and verify it "
-    "with the project's own commands when they exist. Only touch files inside the worktree. "
+    "with file inspection. The orchestrator runs the user-configured tests after your changes. "
+    "You cannot execute commands; only touch files inside the worktree. "
     "Never print secrets. When you are done, call the finish tool with a short summary."
 )
 
@@ -160,9 +140,13 @@ def safe_join(root: Path, raw: str) -> Path:
     candidate = raw.strip().replace("\\", "/")
     if candidate.startswith("/") or (len(candidate) > 1 and candidate[1] == ":"):
         raise OrchestratorError(f"Нужен относительный путь внутри worktree, получен: {raw}")
+    if any(part.casefold() == ".git" or ":" in part for part in candidate.split("/")):
+        raise OrchestratorError("Доступ к Git metadata и специальным путям запрещён.")
     resolved = (root / candidate).resolve(strict=False)
     try:
-        resolved.relative_to(root.resolve(strict=False))
+        relative = resolved.relative_to(root.resolve(strict=False))
+        if any(part.casefold() == ".git" for part in relative.parts):
+            raise OrchestratorError("Доступ к Git metadata запрещён.")
     except ValueError as exc:
         raise OrchestratorError(f"Путь выходит за пределы worktree: {raw}") from exc
     return resolved
@@ -173,6 +157,8 @@ def _read(root: Path, args: dict[str, Any]) -> str:
     if not path.is_file():
         return f"ERROR: файл не найден: {args.get('path')}"
     try:
+        if path.stat().st_size > 2_000_000:
+            return "ERROR: файл слишком большой для текстового инструмента."
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError as exc:
         return f"ERROR: не удалось прочитать файл ({type(exc).__name__})"
@@ -222,13 +208,19 @@ def _str_replace(root: Path, args: dict[str, Any]) -> str:
     if not path.is_file():
         return f"ERROR: файл не найден: {args.get('path')}"
     try:
+        if path.stat().st_size > MAX_FILE_CHARS * 4:
+            return "ERROR: файл слишком большой."
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
         return f"ERROR: не удалось прочитать файл ({type(exc).__name__})"
+    if not old:
+        return "ERROR: old_text не должен быть пустым."
     if old not in text:
         return "ERROR: old_text не найден в файле — пришли точный фрагмент."
     if text.count(old) > 1:
         return f"ERROR: old_text встречается {text.count(old)} раз — добавь контекста, чтобы совпадение было единственным."
+    if len(text) + len(new) - len(old) > MAX_FILE_CHARS:
+        return "ERROR: результат замены слишком большой."
     try:
         path.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")
     except OSError as exc:
@@ -236,24 +228,10 @@ def _str_replace(root: Path, args: dict[str, Any]) -> str:
     return f"OK: заменено в {args.get('path')}"
 
 
-def _run_command(root: Path, args: dict[str, Any], *, timeout: int) -> tuple[str, dict[str, Any] | None]:
-    command = str(args.get("command", "")).strip()
-    if not command:
-        return "ERROR: команда пустая.", None
-    lowered = command.lower()
-    if any(fragment in lowered for fragment in BLOCKED_COMMAND_FRAGMENTS):
-        return "ERROR: команда заблокирована как потенциально разрушительная.", None
-    try:
-        results = run_checks(root, [command], timeout=timeout)
-    except OrchestratorError as exc:
-        return f"ERROR: {exc}", None
-    if not results:
-        return "ERROR: команда не выполнена.", None
-    item = results[0]
-    output = truncate_text(_redact_secrets(str(item.get("output", ""))), MAX_OUTPUT_CHARS)
-    event = {"command": command, "exit_code": item.get("returncode"),
-             "aggregated_output": output}
-    return f"exit {item.get('returncode')}\n{output}", event
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # Never forward Authorization to a redirect target.
+        return None
 
 
 def _post(config: ApiConfig, payload: dict[str, Any]) -> dict[str, Any]:
@@ -265,7 +243,7 @@ def _post(config: ApiConfig, payload: dict[str, Any]) -> dict[str, Any]:
         config.endpoint, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=config.timeout) as response:
+        with urllib.request.build_opener(_NoRedirect).open(request, timeout=config.timeout) as response:
             return json.load(response)
     except urllib.error.HTTPError as exc:
         detail = ""
@@ -280,6 +258,9 @@ def _post(config: ApiConfig, payload: dict[str, Any]) -> dict[str, Any]:
             404: "модель или endpoint не найдены — проверь имя модели и base_url",
             429: "превышен лимит запросов провайдера",
         }
+        detail = _redact_secrets(detail)
+        if config.api_key:
+            detail = detail.replace(config.api_key, "[REDACTED]")
         hint = hints.get(exc.code, "")
         raise OrchestratorError(
             f"API вернул {exc.code}{': ' + hint if hint else ''}." + (f" {detail}" if detail else "")
@@ -330,7 +311,8 @@ def run_llm_api(
         raise OrchestratorError(f"Папка проекта не найдена: {root}")
 
     allowed = [tool for tool in TOOL_SCHEMAS
-               if sandbox == "workspace-write" or tool["function"]["name"] in READ_ONLY_TOOLS]
+               if tool["function"]["name"] != "run_command"
+               and (sandbox == "workspace-write" or tool["function"]["name"] in READ_ONLY_TOOLS)]
     messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT},
                                       {"role": "user", "content": task}]
     totals = {"input": 0, "output": 0, "cached": 0}
@@ -341,11 +323,13 @@ def run_llm_api(
     def notify(event: dict[str, Any]) -> None:
         if on_event is not None:
             try:
-                on_event(event)
+                on_event(redact_data(event))
             except Exception:
                 # A disconnected UI must not stop the model loop.
                 pass
 
+    if token_budget is not None and token_budget <= 0:
+        return CodexResult(1, stderr="Токеновый лимит уже исчерпан.")
     deadline = time.monotonic() + max(1, config.timeout)
     for round_index in range(1, config.max_rounds + 1):
         if cancel_event is not None and cancel_event.is_set():
@@ -354,9 +338,21 @@ def run_llm_api(
             return CodexResult(124, _usage(totals, usage_seen), final_message,
                                stderr=f"Превышен таймаут {config.timeout} с")
         payload: dict[str, Any] = {"model": model, "messages": messages, "tools": allowed,
-                                   "tool_choice": "auto", "temperature": 0.2}
+                                   "tool_choice": "auto"}
         notify({"type": "turn.started"})
-        response = _post(config, payload)
+        try:
+            response = _post(replace(config, timeout=max(0.001, deadline - time.monotonic())), payload)
+        except OrchestratorError as exc:
+            if not usage_seen:
+                raise
+            return CodexResult(1, _usage(totals, usage_seen), final_message, stderr=str(exc))
+        if cancel_event is not None and cancel_event.is_set():
+            # Account for the completed request before returning below.
+            cancelled = True
+        else:
+            cancelled = False
+        if not isinstance(response, dict):
+            return CodexResult(1, _usage(totals, usage_seen), final_message, stderr="API вернул не объект.")
         usage = _usage_from(response)
         if usage.total_tokens is not None:
             usage_seen = True
@@ -367,42 +363,77 @@ def run_llm_api(
                 "input_tokens": usage.input_tokens, "cached_input_tokens": usage.cached_input_tokens,
                 "output_tokens": usage.output_tokens,
             }})
+        if cancelled:
+            return CodexResult(130, _usage(totals, usage_seen), final_message, cancelled=True)
+        if token_budget is not None and usage.total_tokens is None:
+            return CodexResult(1, CodexUsage(), final_message, stderr="API не сообщил usage; лимит нельзя проверить.")
+        if time.monotonic() >= deadline:
+            return CodexResult(124, _usage(totals, usage_seen), final_message, stderr="Превышен таймаут этапа.")
         if token_budget is not None and totals["input"] + totals["output"] >= token_budget:
-            return CodexResult(0, _usage(totals, usage_seen), final_message,
+            return CodexResult(1, _usage(totals, usage_seen), final_message,
                                stderr="Достигнут токеновый лимит задачи внутри одного этапа.")
 
         choices = response.get("choices") or []
-        if not choices:
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
             return CodexResult(1, _usage(totals, usage_seen), final_message, stderr="API вернул пустой choices.")
         message = choices[0].get("message") or {}
+        if not isinstance(message, dict):
+            return CodexResult(1, _usage(totals, usage_seen), final_message, stderr="API вернул некорректный message.")
+        if choices[0].get("finish_reason") in {"length", "content_filter"}:
+            return CodexResult(1, _usage(totals, usage_seen), final_message, stderr="Ответ API оборван или заблокирован.")
         text = message.get("content")
+        if isinstance(text, str):
+            text = _redact_secrets(text)
+            if config.api_key:
+                text = text.replace(config.api_key, "[REDACTED]")
         if isinstance(text, str) and text.strip():
             final_message = text.strip()
             notify({"type": "item.completed", "item": {"type": "agent_message", "text": text.strip()}})
         tool_calls = message.get("tool_calls") or []
+        if not isinstance(tool_calls, list):
+            return CodexResult(1, _usage(totals, usage_seen), final_message, stderr="Некорректный tool_calls.")
         if not tool_calls:
+            if not isinstance(text, str) or not text.strip():
+                return CodexResult(1, _usage(totals, usage_seen), final_message, stderr="API вернул пустой ответ.")
             finished = True
             break
 
         messages.append({"role": "assistant", "content": text if isinstance(text, str) else None,
                          "tool_calls": tool_calls})
         for call in tool_calls:
-            function = call.get("function") or {}
+            if cancel_event is not None and cancel_event.is_set():
+                return CodexResult(130, _usage(totals, usage_seen), final_message, cancelled=True)
+            if time.monotonic() >= deadline:
+                return CodexResult(124, _usage(totals, usage_seen), final_message, stderr="Превышен таймаут этапа.")
+            if not isinstance(call, dict) or not isinstance(call.get("function"), dict):
+                return CodexResult(1, _usage(totals, usage_seen), final_message, stderr="Некорректный вызов инструмента.")
+            function = call["function"]
             name = str(function.get("name", ""))
             try:
                 args = json.loads(function.get("arguments") or "{}")
             except (json.JSONDecodeError, TypeError):
                 args = {}
             try:
+                if not isinstance(args, dict):
+                    raise OrchestratorError("Аргументы инструмента должны быть JSON-объектом.")
                 result_text, command_event = _dispatch(root, name, args, sandbox=sandbox,
                                                        command_timeout=command_timeout, notify=notify)
             except (OrchestratorError, OSError, UnicodeDecodeError, ValueError) as exc:
                 # A failed tool call is a result for the model, not a reason to kill the run.
                 result_text = f"ERROR: {type(exc).__name__}: {exc}"
                 command_event = None
-            if name == "finish":
-                final_message = str(args.get("summary") or final_message or "Задача выполнена.")
-                finished = True
+            if name == "finish" and result_text.startswith("OK"):
+                summary = args.get("summary")
+                if isinstance(summary, str) and summary.strip():
+                    final_message = _redact_secrets(summary.strip())
+                    if config.api_key:
+                        final_message = final_message.replace(config.api_key, "[REDACTED]")
+                    finished = True
+                    break
+                result_text = "ERROR: finish требует непустую строку summary."
+            result_text = _redact_secrets(result_text)
+            if config.api_key:
+                result_text = result_text.replace(config.api_key, "[REDACTED]")
             messages.append({"role": "tool", "tool_call_id": call.get("id", ""),
                              "content": truncate_text(result_text, MAX_OUTPUT_CHARS)})
             if command_event is not None:
@@ -410,8 +441,8 @@ def run_llm_api(
         if finished:
             break
 
-    if not finished and not final_message:
-        final_message = "Модель не вызвала finish и не вернула итоговое сообщение."
+    if not finished:
+        final_message = final_message or "Модель не вызвала finish и не вернула итоговое сообщение."
         return CodexResult(1, _usage(totals, usage_seen), final_message,
                            stderr=f"Исчерпан лимит итераций инструмента: {config.max_rounds}")
     return CodexResult(0, _usage(totals, usage_seen), final_message)
@@ -445,9 +476,7 @@ def _dispatch(root: Path, name: str, args: dict[str, Any], *, sandbox: str,
                     "item": {"type": "file_change", "path": str(args.get("path", "")), "status": "edited"}})
         return result, None
     if name == "run_command":
-        command = str(args.get("command", ""))
-        notify({"type": "item.started", "item": {"type": "command_execution", "command": command}})
-        return _run_command(root, args, timeout=command_timeout)
+        return "ERROR: команды модели отключены: API-исполнитель не имеет OS sandbox. Проверки запускает оркестратор.", None
     if name == "finish":
         return "OK: этап завершён моделью.", None
     return f"ERROR: неизвестный инструмент {name!r}.", None

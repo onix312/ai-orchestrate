@@ -8,6 +8,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 
+from .endpoints import endpoint_provider
 from .core import OrchestratorError, state_dir
 
 
@@ -24,8 +25,8 @@ def default_settings() -> dict[str, Any]:
         "api_base_url": "",
         "api_max_rounds": 12,
         "lane": "",
-        "luna_model": "gpt-6-luna",
-        "sol_model": "gpt-6-sol",
+        "luna_model": "",
+        "sol_model": "",
         "review_model": "",
         "max_repairs": 1,
         "max_model_calls": 5,
@@ -128,6 +129,7 @@ def normalize_settings(value: dict[str, Any], base: dict[str, Any] | None = None
     api_base_url = result["api_base_url"]
     if api_base_url and not _API_URL_RE.fullmatch(api_base_url):
         raise OrchestratorError("API-адрес должен начинаться с http:// или https:// и не содержать пробелов.")
+    endpoint_provider(api_base_url)
     if not isinstance(result["merge_policy"], str) or result["merge_policy"] not in {"confirm", "jev_auto"}:
         raise OrchestratorError("Политика слияния должна быть confirm или jev_auto.")
     if not isinstance(result["merge_target"], str) or result["merge_target"] not in {"local", "github"}:
@@ -143,7 +145,7 @@ def normalize_settings(value: dict[str, Any], base: dict[str, Any] | None = None
             raise OrchestratorError(f"Некорректное значение настройки {key}.")
     for key in ("luna_model", "sol_model"):
         item = result.get(key)
-        if not isinstance(item, str) or not _MODEL_RE.fullmatch(item):
+        if not isinstance(item, str) or (item and not _MODEL_RE.fullmatch(item)):
             raise OrchestratorError(f"Модель {key} должна содержать только буквы, цифры и . _ : / -.")
     review_model = result.get("review_model")
     if not isinstance(review_model, str) or (review_model and not _MODEL_RE.fullmatch(review_model)):
@@ -192,6 +194,10 @@ class SettingsStore:
             if not isinstance(raw, dict):
                 raise OrchestratorError(f"Файл настроек должен содержать JSON-объект: {self.path}")
             # Fill newly introduced fields from defaults while validating existing values.
+            # Migrate the old placeholder defaults; Codex should choose its configured model.
+            for key, legacy in (("luna_model", "gpt-6-luna"), ("sol_model", "gpt-6-sol")):
+                if raw.get(key) == legacy:
+                    raw[key] = ""
             return normalize_settings(raw)
 
     def save(self, updates: dict[str, Any]) -> dict[str, Any]:

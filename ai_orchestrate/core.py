@@ -18,10 +18,10 @@ from typing import Any, Callable
 
 JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 LANES = {
-    "SMALL": ("gpt-6-luna", "low"),
-    "MEDIUM": ("gpt-6-luna", "medium"),
-    "HIGH": ("gpt-6-luna", "high"),
-    "ESCALATE": ("gpt-6-sol", "high"),
+    "SMALL": ("", "low"),
+    "MEDIUM": ("", "medium"),
+    "HIGH": ("", "high"),
+    "ESCALATE": ("", "high"),
 }
 EFFORTS = ("low", "medium", "high")
 LANE_ORDER = ("SMALL", "MEDIUM", "HIGH", "ESCALATE")
@@ -78,8 +78,8 @@ class CodexResult:
 
 def configured_lanes(*, luna_model: str | None = None, sol_model: str | None = None) -> dict[str, tuple[str, str]]:
     """Resolve model aliases without making a network call; UI settings override environment defaults."""
-    luna = luna_model or os.environ.get("AI_ORCHESTRATE_LUNA_MODEL", "gpt-6-luna")
-    sol = sol_model or os.environ.get("AI_ORCHESTRATE_SOL_MODEL", "gpt-6-sol")
+    luna = luna_model or os.environ.get("AI_ORCHESTRATE_LUNA_MODEL", "")
+    sol = sol_model or os.environ.get("AI_ORCHESTRATE_SOL_MODEL", "")
     return {
         "SMALL": (luna, "low"),
         "MEDIUM": (luna, "medium"),
@@ -239,6 +239,7 @@ class CodexEventParser:
         self.totals = {"input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0}
         self.seen = {key: False for key in self.totals}
         self.final_message = ""
+        self.error = ""
         self.has_json_event = False
         self._plain_tail: deque[str] = deque(maxlen=30)
         self._plain_chars = 0
@@ -256,6 +257,9 @@ class CodexEventParser:
         if not isinstance(event, dict):
             return None
         self.has_json_event = True
+        if event.get("type") in {"turn.failed", "error"}:
+            error = event.get("error") or event.get("message") or "Codex сообщил об ошибке."
+            self.error = str(error.get("message", error) if isinstance(error, dict) else error)[-4000:]
         if event.get("type") in {"turn.completed", "turn.failed"}:
             usage = event.get("usage")
             if isinstance(usage, dict):
@@ -338,10 +342,20 @@ def _kill_process_tree(proc: subprocess.Popen) -> None:
             proc.kill()
 
 
+def redact_data(value: Any) -> Any:
+    if isinstance(value, str):
+        return _redact_secrets(value)
+    if isinstance(value, dict):
+        return {key: redact_data(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [redact_data(item) for item in value]
+    return value
+
+
 def _notify_codex(on_event: Callable[[dict[str, Any]], None] | None, event: dict[str, Any]) -> None:
     if on_event is not None:
         try:
-            on_event(event)
+            on_event(redact_data(event))
         except Exception:
             # A disconnected UI must not stop Codex or lose its final usage result.
             pass
@@ -349,10 +363,10 @@ def _notify_codex(on_event: Callable[[dict[str, Any]], None] | None, event: dict
 
 def _codex_result(parser: CodexEventParser, returncode: int, stderr: str, *, cancelled: bool = False) -> CodexResult:
     return CodexResult(
-        returncode=returncode,
+        returncode=returncode or (1 if parser.error else 0),
         usage=parser.usage,
         final_message=_redact_secrets(parser.message)[-12000:],
-        stderr=_redact_secrets(stderr)[-4000:],
+        stderr=_redact_secrets("\n".join(part for part in (stderr, parser.error) if part))[-4000:],
         cancelled=cancelled,
     )
 
@@ -391,7 +405,7 @@ def run_codex(
     on_event: Callable[[dict[str, Any]], None] | None = None,
     cancel_event: Any = None,
 ) -> CodexResult:
-    """Run one ephemeral Codex turn, stream safe-to-consume JSONL events and collect usage."""
+    """Run one persisted Codex turn, stream safe-to-consume JSONL events and collect usage."""
     if effort not in EFFORTS:
         raise OrchestratorError(f"Invalid reasoning effort {effort!r}.")
     if sandbox not in ("workspace-write", "read-only"):
@@ -403,7 +417,8 @@ def run_codex(
     command_prefix = _codex_command()
     codex_executable = command_prefix[-1]
     command = [
-        *command_prefix, "exec", "--json", "--ephemeral", "-m", model,
+        *command_prefix, "exec", "--json",
+        *(["-m", model] if model else []),
         "-c", f'model_reasoning_effort="{effort}"',
         "-c", 'model_verbosity="low"',
         "-s", sandbox, "-C", str(repo), "-",
@@ -569,21 +584,38 @@ def run_checks(
             args = split_command(command)
         except ValueError as exc:
             raise OrchestratorError(f"Invalid check command {command!r}: {exc}") from exc
-        if not args or not shutil.which(args[0]):
+        executable = shutil.which(args[0]) if args else None
+        if not executable:
             raise OrchestratorError(f"Check command is unavailable: {command}")
+        args[0] = executable
+        if os.name == "nt" and executable.lower().endswith((".cmd", ".bat")):
+            args = [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/s", "/c", *args]
         try:
             proc = subprocess.Popen(
                 args, cwd=repo, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
-                env=_codex_env(), **_process_group_options(),
+                env=_codex_env(include_openai=False), **_process_group_options(),
             )
         except OSError as exc:
             raise OrchestratorError(f"Could not start check command {command!r} ({type(exc).__name__}).") from exc
 
+        # Drain incrementally rather than communicate(): test logs can be arbitrarily large.
+        tail: deque[bytes] = deque(maxlen=4)
+        assert proc.stdout is not None
+        def read_output() -> None:
+            try:
+                while True:
+                    chunk = os.read(proc.stdout.fileno(), 4096)
+                    if not chunk:
+                        break
+                    tail.append(chunk)
+            except (OSError, ValueError):
+                pass
+        reader = threading.Thread(target=read_output, daemon=True, name="check-output")
+        reader.start()
         deadline = time.monotonic() + timeout
         timed_out = False
         cancelled = False
-        output: str | bytes | None = None
         while True:
             if cancel_event is not None and cancel_event.is_set():
                 cancelled = True
@@ -593,21 +625,23 @@ def run_checks(
                 timed_out = True
                 break
             try:
-                output, _ = proc.communicate(timeout=min(0.2, remaining))
+                proc.wait(timeout=min(0.2, remaining))
                 break
             except subprocess.TimeoutExpired:
                 continue
-
-        if timed_out or cancelled:
+        # A check must not leave background children editing a worktree after validation.
+        if timed_out or cancelled or os.name != "nt":
             _kill_process_tree(proc)
+        if proc.poll() is None:
             try:
-                output, _ = proc.communicate(timeout=5)
+                proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                if proc.poll() is None:
-                    proc.kill()
-                output, _ = proc.communicate()
+                proc.kill()
+                proc.wait(timeout=5)
+        reader.join(timeout=2)
+        proc.stdout.close()
         returncode = 130 if cancelled else 124 if timed_out else (proc.returncode if proc.returncode is not None else 1)
-        text = _redact_secrets(_as_text(output))[-4000:]
+        text = _redact_secrets(b"".join(tail).decode("utf-8", errors="replace"))[-4000:]
         result = {"command": command, "returncode": returncode, "output": text}
         if cancelled:
             result["cancelled"] = True
@@ -633,7 +667,7 @@ def git_snapshot(repo: Path, *, max_chars: int = 16000, base: str | None = None)
     this is needed by the final Jev gate after changes have been committed in a worktree.
     """
     diff_args = ["git", "diff", "--no-ext-diff", "--unified=2"]
-    diff_args.append(f"{base}..HEAD" if base else "HEAD")
+    diff_args.append(base or "HEAD")
     diff = subprocess.run(
         diff_args,
         cwd=repo, capture_output=True, text=True, check=True,
@@ -653,9 +687,13 @@ def git_snapshot(repo: Path, *, max_chars: int = 16000, base: str | None = None)
         if not name or remaining <= 0:
             break
         try:
-            with (repo / name).open("r", encoding="utf-8", errors="replace") as source:
+            path = repo / name
+            if path.is_symlink() or not path.is_file():
+                continue
+            path.resolve().relative_to(repo.resolve())
+            with path.open("r", encoding="utf-8", errors="replace") as source:
                 content = source.read(min(2000, remaining))
-        except (OSError, IsADirectoryError):
+        except (OSError, ValueError):
             content = "<unreadable or binary>"
         addition = f"\n--- untracked: {name} ---\n{content}"
         chunks.append(addition[:remaining])
@@ -750,10 +788,13 @@ def ensure_clean_git(repo: Path) -> None:
         raise OrchestratorError("Repository must have a clean worktree (including untracked files) before starting.")
 
 
-def _codex_env() -> dict[str, str]:
+def _codex_env(*, include_openai: bool = True) -> dict[str, str]:
     env = os.environ.copy()
     for key in ("TYPESAFE_API_KEY", "OPENROUTER_API_KEY"):
         env.pop(key, None)
+    if not include_openai:
+        for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "GH_TOKEN", "GITHUB_TOKEN"):
+            env.pop(key, None)
     return env
 
 

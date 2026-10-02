@@ -312,9 +312,14 @@ def publish_and_merge(
     merge_method: str,
     wait_for_checks: bool,
     delete_branch: bool,
+    expected_sha: str | None = None,
 ) -> dict[str, Any]:
     if merge_method not in {"squash", "merge", "rebase"}:
         raise OrchestratorError("Неизвестный способ слияния GitHub pull request.")
+    if expected_sha:
+        actual = git(Path(repo_path), ["rev-parse", "--verify", branch]).stdout.strip()
+        if actual != expected_sha:
+            raise OrchestratorError("Рабочая ветка изменилась после проверок; публикация запрещена.")
     if not base_branch:
         base_branch = repository.default_branch
 
@@ -338,7 +343,7 @@ def publish_and_merge(
             # Previous attempt already pushed this exact commit; safely resume the merge step.
             pass
         elif item.head_sha and remote_sha == item.head_sha:
-            git(Path(repo_path), ["push", "origin", f"{branch}:{item.head_branch}"], timeout=180)
+            git(Path(repo_path), ["push", "origin", f"{expected_sha or branch}:refs/heads/{item.head_branch}"], timeout=180)
         else:
             raise OrchestratorError(
                 "Слияние остановлено: head pull request изменился во время работы. "
@@ -358,12 +363,14 @@ def publish_and_merge(
         if existing and existing_state != "OPEN":
             raise OrchestratorError("Для рабочей ветки найден закрытый PR; создаю новый автоматически запрещено.")
         if existing:
+            if expected_sha and existing.get("headRefOid") != expected_sha:
+                raise OrchestratorError("Head PR не совпадает с проверенным commit; слияние запрещено.")
             if existing.get("baseRefName") != base_branch:
                 raise OrchestratorError("Для этой ветки уже существует PR с другой базовой веткой.")
             pull_reference = str(existing.get("number") or existing.get("url"))
             pull_url = str(existing.get("url") or "")
         else:
-            git(Path(repo_path), ["push", "--set-upstream", "origin", branch], timeout=180)
+            git(Path(repo_path), ["push", "origin", f"{expected_sha or branch}:refs/heads/{branch}"], timeout=180)
             created = _gh(repo_path, [
                 "pr", "create", "--repo", repository.name_with_owner,
                 "--base", base_branch,
@@ -386,6 +393,8 @@ def publish_and_merge(
         remote_branch = branch
 
     merge_args = ["pr", "merge", pull_reference, f"--{merge_method}"]
+    if expected_sha:
+        merge_args.extend(["--match-head-commit", expected_sha])
     if wait_for_checks:
         merge_args.append("--auto")
     # Do not ask gh to delete the local branch: it is intentionally checked out in

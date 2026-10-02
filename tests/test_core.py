@@ -214,7 +214,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(captured["input"], "do work")
         self.assertEqual(captured["command"][-1], "-")
         self.assertIn("--json", captured["command"])
-        self.assertIn("--ephemeral", captured["command"])
+        self.assertNotIn("--ephemeral", captured["command"])
         self.assertIn("workspace-write", captured["command"])
         self.assertNotIn("TYPESAFE_API_KEY", captured["env"])
 
@@ -467,7 +467,7 @@ class CliTests(unittest.TestCase):
                 self.assertEqual(_run(args), 0)
             self.assertEqual(codex.call_count, 2)
             self.assertIn("assertion failed", codex.call_args_list[1].args[1])
-            self.assertIn("gpt-6-luna", codex.call_args_list[1].args[2])
+            self.assertEqual(codex.call_args_list[1].args[2], LANES["MEDIUM"][0])
             self.assertIn("escalating to MEDIUM", output.getvalue())
 
     def test_unknown_usage_stops_budgeted_retries(self):

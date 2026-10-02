@@ -6,6 +6,8 @@ import shutil
 import subprocess
 import uuid
 from dataclasses import dataclass, field
+from contextlib import contextmanager
+from collections import deque
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -22,11 +24,13 @@ from .core import (
     git_snapshot,
     jev_choice,
     review_passed,
+    redact_data,
     run_checks,
     split_command,
     state_dir,
     truncate_text,
 )
+from .endpoints import endpoint_provider
 from .github import (
     GitHubItem,
     github_auth_available,
@@ -47,6 +51,8 @@ from .gitops import (
     pull_request_head_sha,
     remote_branch_sha,
     remove_worktree,
+    verify_worktree,
+    worktree_digest,
 )
 from .prompts import PROFESSIONS, ROLE_PROMPTS
 from .settings import SettingsStore, default_settings, normalize_settings
@@ -54,7 +60,7 @@ from .usage import default_usage_path, tokens_for_date
 from .workflow import WorkflowRequest, WorkflowStopped, run_workflow, suggest_checks
 
 
-MAX_REQUEST_BYTES = 128_000
+MAX_REQUEST_BYTES = 1_000_000
 MAX_EVENTS_PER_JOB = 1600
 MAX_RETAINED_JOBS = 20
 _ACTIVE_STATUSES = {"queued", "running", "merging", "awaiting_confirmation"}
@@ -94,6 +100,10 @@ class RunJob:
     worktree: Worktree | None = None
     created_at: str = field(default_factory=lambda: datetime.now().astimezone().isoformat(timespec="seconds"))
     next_event_id: int = 1
+    model_calls_spent: int = 0
+    tokens_spent: int = 0
+    prompt_tokens_spent: int = 0
+    usage_unknown: bool = False
 
 
 @dataclass
@@ -295,8 +305,11 @@ class RunManager:
                 raise OrchestratorError("Задача не найдена.")
             if job.worktree is None or not job.worktree.path.is_dir():
                 raise OrchestratorError("У этой задачи нет рабочей копии — мост ChatGPT недоступен.")
-            if job.status in {"queued", "running", "merging"}:
+            if job.status not in {"incomplete", "failed", "cancelled", "awaiting_confirmation"}:
                 raise OrchestratorError("Дождись завершения текущего запуска перед использованием моста ChatGPT.")
+            active = self._jobs.get(self._active_job)
+            if active and active.id != job.id and active.status in _ACTIVE_STATUSES:
+                raise OrchestratorError("Сначала заверши другую активную задачу.")
             return job
 
     def _bridge_checks(self, job: RunJob) -> list[dict[str, Any]]:
@@ -311,7 +324,7 @@ class RunManager:
                 })
 
         checks = run_checks(job.worktree.path, job.submission.checks,
-                            timeout=job.submission.settings["check_timeout"], on_event=on_event)
+                            timeout=job.submission.settings["check_timeout"], on_event=on_event, cancel_event=job.cancel)
         with self._lock:
             for check in checks:
                 self._append_event(job, {
@@ -322,16 +335,42 @@ class RunManager:
                 })
         return checks
 
+    @contextmanager
+    def _bridge_operation(self, payload: dict[str, Any]):
+        with self._lock:
+            job = self._bridge_job(payload)
+            previous = job.status
+            job.status = "running"
+            job.cancel.clear()
+            self._active_job = job.id
+        try:
+            yield job
+        finally:
+            with self._lock:
+                if job.status == "running":
+                    job.status = previous
+                if job.status not in _ACTIVE_STATUSES and self._active_job == job.id:
+                    self._active_job = None
+
     def bridge_prompt(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Build the one message the user pastes into the ChatGPT app."""
-        job = self._bridge_job(payload)
+        with self._bridge_operation(payload) as job:
+            return self._bridge_prompt(job)
+
+    def _bridge_prompt(self, job: RunJob) -> dict[str, Any]:
         worktree = job.worktree
         result = job.result or {}
         try:
             diff, status = git_snapshot(worktree.path, base=worktree.base_sha)
         except (subprocess.CalledProcessError, OSError):
             diff, status = git_snapshot(worktree.path)
-        checks = self._bridge_checks(job)
+        # Preparing a prompt is read-only: don't rerun arbitrary tests while merge is approved.
+        checks = (job.result or {}).get("checks", [])
+        by_command = {item["command"]: item for item in checks}
+        for event in job.events:
+            if event.get("event") == "check.result" and isinstance(event.get("data"), dict):
+                data = event["data"]
+                by_command[data["command"]] = data
+        checks = list(by_command.values())
         prompt = chatgpt_bridge.build_bridge_prompt(
             job.submission.task, diff, status, checks,
             plan=str(result.get("plan", "")), review=str(result.get("review", "")),
@@ -346,13 +385,40 @@ class RunManager:
                                   for item in checks if item["returncode"] != 0]}
 
     def bridge_apply(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Apply a pasted ChatGPT answer inside the worktree, then re-run the project's own checks."""
-        job = self._bridge_job(payload)
+        if not isinstance(payload, dict):
+            raise OrchestratorError("Запрос должен быть JSON-объектом.")
         answer = payload.get("answer", "")
         if not isinstance(answer, str) or not answer.strip():
             raise OrchestratorError("Вставь ответ ChatGPT в поле answer.")
+        operations = chatgpt_bridge.parse_answer(answer)
+        with self._bridge_operation(payload) as job:
+            # Invalidate approval BEFORE touching files, including on tool/check exceptions.
+            with self._lock:
+                result = dict(job.result or {})
+                expected_head = result.get("commit_sha") or job.worktree.base_sha
+                result.update({"status": "incomplete", "merge_status": "blocked", "review": ""})
+                job.result = result
+                job.error = ""
+            try:
+                return self._bridge_apply(job, operations, expected_head)
+            except Exception as exc:
+                with self._lock:
+                    job.error = redact_data(str(exc))
+                    self._append_event(job, {"event": "run.incomplete", "stage": "final", "role": "Мост ChatGPT",
+                                            "message": job.error, "data": {}})
+                raise
+            finally:
+                with self._lock:
+                    if job.status == "running":
+                        job.status = "cancelled" if job.cancel.is_set() else "incomplete"
+                    job.result.update({"model_calls": max(job.result.get("model_calls", 0), job.model_calls_spent),
+                                       "run_tokens": max(job.result.get("run_tokens", 0), job.tokens_spent),
+                                       "prompt_estimate": max(job.result.get("prompt_estimate", 0), job.prompt_tokens_spent)})
+
+    def _bridge_apply(self, job: RunJob, operations: list, expected_head: str) -> dict[str, Any]:
         worktree = job.worktree
-        report = chatgpt_bridge.apply_operations(worktree.path, chatgpt_bridge.parse_answer(answer))
+        verify_worktree(worktree, expected_head, clean=False)
+        report = chatgpt_bridge.apply_operations(worktree.path, operations)
         with self._lock:
             self._append_event(job, {
                 "event": "bridge.applied", "stage": "review", "role": "Мост ChatGPT",
@@ -360,22 +426,54 @@ class RunManager:
                             + (f" Отклонено: {len(report.rejected)}." if report.rejected else "")),
                 "data": report.public(),
             })
-        checks = self._bridge_checks(job)
+        if not report.ok:
+            return {"run": job.id, "report": report.public(), "checks_passed": False, "checks": [],
+                    "review_passed": False}
+        verification = {}
+        if job.submission.settings["mode"] == "full":
+            settings = job.submission.settings
+            options = {key: value for key, value in settings.items() if key in WorkflowRequest.__dataclass_fields__}
+            if job.usage_unknown:
+                raise WorkflowStopped("Предыдущий вызов не сообщил usage; автоматическое ревью остановлено.")
+            for limit, spent in (("max_model_calls", max(job.model_calls_spent, job.result.get("model_calls", 0))),
+                                 ("max_run_tokens", max(job.tokens_spent, job.result.get("run_tokens", 0))),
+                                 ("prompt_token_budget", max(job.prompt_tokens_spent, job.result.get("prompt_estimate", 0)))):
+                options[limit] = settings[limit] - spent
+                if options[limit] < 1:
+                    raise WorkflowStopped(f"Лимит {limit} исчерпан; мост не может обходить бюджет задачи.")
+            options.update(repo=worktree.path, task=_task_with_project_context(
+                task_with_github_context(job.submission.task, job.submission.github_item)
+                if job.submission.github_item else job.submission.task, job.submission.project_context),
+                checks=job.submission.checks, allow_dirty=True, router="local", lane=None, max_repairs=0)
+            verification = run_workflow(WorkflowRequest(**options), verification_only=True,
+                                        review_base=worktree.base_sha,
+                                        emit=lambda event: self._workflow_event(job, event),
+                                        cancel_event=job.cancel, usage_path=self._usage_path_for(settings))
+            checks = verification.get("checks", [])
+        else:
+            checks = self._bridge_checks(job)
         green = bool(checks) and all(item["returncode"] == 0 for item in checks)
+        review_ok = job.submission.settings["mode"] != "full" or (
+            verification.get("status") == "complete" and review_passed(str(verification.get("review", ""))))
+        job.result.update({"checks": checks, "review": verification.get("review", ""),
+                           "model_calls": job.model_calls_spent, "run_tokens": job.tokens_spent,
+                           "prompt_estimate": job.prompt_tokens_spent})
         summary: dict[str, Any] = {
+            "review_passed": review_ok,
             "run": job.id, "report": report.public(), "checks_passed": green,
             "checks": [{"command": item["command"], "returncode": item["returncode"]} for item in checks],
         }
-        if not green:
+        if not green or not review_ok or job.cancel.is_set():
             self._append_event(job, {
                 "event": "bridge.checks_failed", "stage": "review", "role": "Мост ChatGPT",
-                "message": "Проверки после ответа ChatGPT всё ещё не проходят; слияние недоступно.",
-                "data": summary["checks"],
+                "message": "Проверки или независимое ревью после ответа ChatGPT не пройдены; слияние недоступно.",
+                "data": {"checks": summary["checks"], "review_passed": review_ok},
             })
             return summary
 
         title = next((line.strip() for line in job.submission.task.splitlines() if line.strip()), "AI-assisted change")
-        commit = commit_worktree(worktree, f"ai-orchestrate: {title}")
+        commit = commit_worktree(worktree, f"ai-orchestrate: {title}", expected_head=expected_head,
+                                 verified_digest=verification.get("verified_digest") or worktree_digest(worktree.path))
         result = dict(job.result or {})
         result.update({
             "status": "complete",
@@ -390,6 +488,10 @@ class RunManager:
         })
         with self._lock:
             job.result = result
+        if not commit["committed"] and expected_head != worktree.base_sha:
+            result.update({"commit_sha": expected_head, "merge_status": "pending"})
+            self._await_confirmation(job, "Изменения проверены повторно; требуется подтверждение слияния.")
+            return summary
         if not commit["committed"]:
             self._append_event(job, {
                 "event": "run.completed", "stage": "final", "role": "Итог",
@@ -433,6 +535,7 @@ class RunManager:
         default_repo = self._default_repo(settings)
         with self._lock:
             active = self._active_job
+            latest = next(reversed(self._jobs), None)
         usage_path = self._usage_path_for(settings)
         journal_path = self._journal_path_for(settings)
         try:
@@ -451,7 +554,7 @@ class RunManager:
             "github_authenticated": github_auth_available(str(default_repo)) if github_cli_available() else False,
             "jev_available": bool(secrets.active_jev_key()),
             "jev_key": secrets.jev_key_status(),
-            "environment": env_setup.environment_report(),
+            "environment": env_setup.environment_report(executor=settings["executor"], api_base_url=settings["api_base_url"]),
             "usage_today_tokens": usage_today,
             "usage_error": usage_error,
             "settings": settings,
@@ -466,6 +569,7 @@ class RunManager:
             ],
             "role_prompts": ROLE_PROMPTS,
             "active_job": active,
+            "latest_job": latest,
             "check_suggestions": suggest_checks(default_repo) if default_repo.is_dir() else [],
         }
 
@@ -541,9 +645,8 @@ class RunManager:
             if not str(settings["api_model"]).strip():
                 raise OrchestratorError("Для API-исполнителя укажи имя модели в настройках.")
             base_url = str(settings["api_base_url"]).strip()
-            remote = not any(token in base_url for token in ("127.0.0.1", "localhost", "0.0.0.0", "[::1]"))
-            provider_id = "openrouter" if "openrouter.ai" in base_url.lower() else "openai"
-            if remote and not secrets.active_key(provider_id):
+            provider_id = endpoint_provider(base_url)
+            if provider_id and not secrets.active_key(provider_id):
                 raise OrchestratorError(
                     "Нет ключа API: сохрани ключ в разделе «Ключи API» или укажи локальный сервер "
                     "(Ollama: http://127.0.0.1:11434/v1)."
@@ -624,6 +727,10 @@ class RunManager:
                 return False
             if job.result is None or job.result.get("status") != "complete" or not job.result.get("commit_sha"):
                 return False
+            active = self._jobs.get(self._active_job)
+            if active and active.id != job.id and active.status in _ACTIVE_STATUSES:
+                return False
+            self._active_job = job.id
             job.status = "merging"
             job.error = ""
             self._append_event(job, {
@@ -666,6 +773,7 @@ class RunManager:
                 "result": job.result,
                 "error": job.error,
                 "can_confirm": job.status == "awaiting_confirmation" and bool(job.result and job.result.get("commit_sha")),
+                "can_bridge": job.status in {"awaiting_confirmation", "incomplete", "failed", "cancelled"} and job.worktree is not None and job.worktree.path.is_dir(),
                 "can_discard": job.status in {"awaiting_confirmation", "incomplete", "failed", "cancelled"} and job.worktree is not None,
                 "last_event_id": job.next_event_id - 1,
             }
@@ -674,12 +782,27 @@ class RunManager:
         item = {
             "id": job.next_event_id,
             "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
-            **event,
+            **redact_data(event),
         }
         job.next_event_id += 1
         job.events.append(item)
         if len(job.events) > MAX_EVENTS_PER_JOB:
             del job.events[: len(job.events) - MAX_EVENTS_PER_JOB]
+
+    def _workflow_event(self, job: RunJob, event: dict[str, Any]) -> None:
+        with self._lock:
+            data = event.get("data") or {}
+            previous = job.result or {}
+            if event.get("event") == "model.started":
+                job.model_calls_spent = max(job.model_calls_spent, previous.get("model_calls", 0)) + 1
+                job.prompt_tokens_spent = max(job.prompt_tokens_spent, previous.get("prompt_estimate", 0)) + data.get("prompt_estimate", 0)
+            elif event.get("event") == "usage":
+                job.tokens_spent = max(job.tokens_spent, previous.get("run_tokens", 0)) + data.get("total_tokens", 0)
+            elif event.get("event") == "usage.unknown":
+                job.usage_unknown = True
+        # Workflow completion is not job completion: commit and merge gates still follow.
+        if event.get("event") not in {"run.completed", "run.incomplete"}:
+            self._job_event(job, event)
 
     def _job_event(self, job: RunJob, event: dict[str, Any]) -> None:
         with self._lock:
@@ -803,7 +926,7 @@ class RunManager:
             )
             result = run_workflow(
                 workflow_request,
-                emit=lambda event: self._job_event(job, event),
+                emit=lambda event: self._workflow_event(job, event),
                 cancel_event=job.cancel,
                 usage_path=self._usage_path_for(settings),
             )
@@ -819,13 +942,13 @@ class RunManager:
                     job.status = "incomplete"
                     self._append_event(job, {
                         "event": "run.incomplete", "stage": "final", "role": "Итог",
-                        "message": "Проверки или ревью не пройдены; слияние запрещено.", "data": result,
+                        "message": "Слияние запрещено. " + (result.get("failure_reason") or "Проверки или ревью не пройдены."), "data": result,
                     })
                 self._record_journal(job)
                 return
 
             title = item.title if item else next((line.strip() for line in job.submission.task.splitlines() if line.strip()), "AI-assisted change")
-            commit = commit_worktree(worktree, f"ai-orchestrate: {title}")
+            commit = commit_worktree(worktree, f"ai-orchestrate: {title}", verified_digest=result.get("verified_digest"))
             result.update({
                 "branch": worktree.branch,
                 "base_branch": worktree.base_branch,
@@ -983,8 +1106,15 @@ class RunManager:
         if worktree is None or job.result is None:
             raise OrchestratorError("Нет готовой изолированной ветки для слияния.")
         settings = job.submission.settings
+        expected = str(job.result.get("commit_sha") or "")
+        checks = job.result.get("checks") or []
+        if (job.result.get("status") != "complete" or not expected or not checks
+                or not all(isinstance(c, dict) and c.get("returncode") == 0 for c in checks)
+                or (settings["mode"] == "full" and not review_passed(str(job.result.get("review", ""))))):
+            raise OrchestratorError("Слияние запрещено: нет успешных проверок и обязательного ревью.")
+        verify_worktree(worktree, expected)
         if settings["merge_target"] == "local":
-            merged_sha = merge_local(worktree)
+            merged_sha = merge_local(worktree, expected_sha=expected)
             merge_data: dict[str, Any] = {
                 "status": "merged",
                 "target": worktree.base_branch,
@@ -997,6 +1127,7 @@ class RunManager:
                 str(job.submission.repo),
                 repository=repo_info,
                 branch=worktree.branch,
+                expected_sha=expected,
                 base_branch=worktree.base_branch,
                 task=job.submission.task,
                 checks=job.submission.checks,
@@ -1030,7 +1161,7 @@ class RunManager:
         if job.worktree is None:
             return
         try:
-            remove_worktree(job.worktree, delete_branch=delete_branch, force=force)
+            remove_worktree(job.worktree, delete_branch=delete_branch, force=False, force_branch=force)
             self._emit(job, "worktree.cleaned", "final", "Изолированная рабочая копия закрыта.",
                        data={"branch": job.worktree.branch, "deleted_branch": delete_branch})
         except OrchestratorError as exc:
@@ -1039,14 +1170,18 @@ class RunManager:
 
     def _discard_worker(self, job: RunJob) -> None:
         try:
-            self._cleanup(job, delete_branch=True, force=True)
+            worktree = job.worktree
+            if worktree is None:
+                raise OrchestratorError("Рабочая копия отсутствует.")
+            remove_worktree(worktree, delete_branch=True, force=True)
             with self._lock:
+                job.worktree = None
                 job.status = "cancelled"
                 job.error = ""
                 self._append_event(job, {
                     "event": "worktree.discard.completed", "stage": "final", "role": "Итог",
                     "message": "Изолированная ветка и рабочая копия удалены.",
-                    "data": {"branch": job.worktree.branch if job.worktree else ""},
+                    "data": {"branch": worktree.branch},
                 })
             self._record_journal(job)
         except Exception as exc:
@@ -1066,7 +1201,7 @@ class RunManager:
         journal_path = self._journal_path_for()
         if not journal_path.exists():
             return []
-        entries: list[dict[str, Any]] = []
+        entries: deque[dict[str, Any]] = deque(maxlen=max(1, min(limit, 100)))
         try:
             with journal_path.open("r", encoding="utf-8") as source:
                 for line in source:
@@ -1077,7 +1212,9 @@ class RunManager:
                         entries.append(item)
         except (OSError, json.JSONDecodeError) as exc:
             raise OrchestratorError(f"Журнал повреждён или недоступен ({type(exc).__name__}).") from exc
-        return entries[-max(1, min(limit, 100)):][::-1]
+        with self._lock:
+            return [{**entry, "available": entry.get("job_id") in self._jobs}
+                    for entry in reversed(entries)]
 
     def _record_journal(self, job: RunJob) -> None:
         if not job.submission.settings.get("save_journal", True):
@@ -1091,9 +1228,10 @@ class RunManager:
             "github_url": job.submission.github_item.url if job.submission.github_item else "",
             "branch": job.worktree.branch if job.worktree else "",
             "base_branch": job.worktree.base_branch if job.worktree else "",
+            "worktree_path": str(job.worktree.path) if job.worktree else "",
             "merge_status": result.get("merge_status", ""),
-            "model_calls": result.get("model_calls", 0),
-            "run_tokens": result.get("run_tokens", 0),
+            "model_calls": max(result.get("model_calls", 0), job.model_calls_spent),
+            "run_tokens": max(result.get("run_tokens", 0), job.tokens_spent),
             "changed_files": result.get("changed_files", []),
             "jev_decision": result.get("jev_decision", ""),
         }
@@ -1122,7 +1260,8 @@ class RunManager:
         if len(self._jobs) <= MAX_RETAINED_JOBS:
             return
         removable = [key for key, job in self._jobs.items()
-                     if key != self._active_job and job.status not in _ACTIVE_STATUSES]
+                     if key != self._active_job and job.status not in _ACTIVE_STATUSES
+                     and (job.worktree is None or not job.worktree.path.exists())]
         for key in removable[: max(0, len(self._jobs) - MAX_RETAINED_JOBS)]:
             self._jobs.pop(key, None)
 
@@ -1359,8 +1498,8 @@ def make_handler(manager: RunManager) -> type[BaseHTTPRequestHandler]:
                         self._json(200, manager.bridge_prompt(payload))
                     else:
                         self._json(200, manager.bridge_apply(payload))
-                except OrchestratorError as exc:
-                    self._json(400, {"error": str(exc)})
+                except (OrchestratorError, WorkflowStopped) as exc:
+                    self._json(400, {"error": redact_data(str(exc))})
                 return
             if parsed.path == "/api/autofill":
                 payload = _json_body(self)

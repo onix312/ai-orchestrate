@@ -134,12 +134,12 @@ class AutomationTests(unittest.TestCase):
 
             merge_attempts = 0
 
-            def flaky_merge(worktree):
+            def flaky_merge(worktree, **kwargs):
                 nonlocal merge_attempts
                 merge_attempts += 1
                 if merge_attempts == 1:
                     raise OrchestratorError("simulated temporary merge failure")
-                return perform_local_merge(worktree)
+                return perform_local_merge(worktree, **kwargs)
 
             decision = Decision("APPROVE", 0.98, {"APPROVE": 0.98, "HOLD": 0.01, "REJECT": 0.01})
             with patch.dict("os.environ", {"TYPESAFE_API_KEY": "test-key-for-automation"}), \

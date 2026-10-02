@@ -441,9 +441,9 @@
                 <div class="field"><label for="codexTimeout">Таймаут Codex · сек</label><input id="codexTimeout" type="number" min="10" max="7200" step="60" value="1800"></div>
                 <div class="field"><label for="checkTimeout">Таймаут проверки · сек</label><input id="checkTimeout" type="number" min="1" max="3600" step="30" value="300"></div>
               </div>
-              <div class="field"><label for="lunaModel">Модель Luna <span class="field-hint">полосы SMALL–HIGH</span></label><input id="lunaModel" type="text" maxlength="120" value="gpt-6-luna"></div>
+              <div class="field"><label for="lunaModel">Модель Luna <span class="field-hint">полосы SMALL–HIGH</span></label><input id="lunaModel" type="text" maxlength="120" placeholder="По настройкам Codex CLI"></div>
               <div class="two-col">
-                <div class="field"><label for="solModel">Модель Sol <span class="field-hint">эскалация</span></label><input id="solModel" type="text" maxlength="120" value="gpt-6-sol"></div>
+                <div class="field"><label for="solModel">Модель Sol <span class="field-hint">эскалация</span></label><input id="solModel" type="text" maxlength="120" placeholder="По настройкам Codex CLI"></div>
                 <div class="field"><label for="reviewModel">Модель ревьюера <span class="field-hint">пусто = другая</span></label><input id="reviewModel" type="text" maxlength="120" placeholder="автовыбор"></div>
               </div>
               <label class="toggle-row"><input id="saveJournal" type="checkbox" checked> Сохранять краткий журнал запусков</label>
@@ -730,17 +730,20 @@
       line.append(title, time); main.append(line);
       const data = event.data || {};
       let extras = [];
+      if (data.thread_id) extras.push(`Сессия Codex: ${data.thread_id} · открыть в CLI: codex resume ${data.thread_id}`);
       if (data.command) extras.push(`$ ${data.command}`);
       if (data.model) extras.push(`${data.model}${data.effort ? " / " + data.effort : ""}`);
       if (data.total_tokens != null) {
         const cached = data.cached_input_tokens != null ? ` · cached ${data.cached_input_tokens}` : "";
         extras.push(`input ${data.input_tokens ?? "?"}${cached} · output ${data.output_tokens ?? "?"} · всего ${data.total_tokens}`);
       }
+      if (event.event === "codex.error" && data.message) extras.push(data.message);
       if (data.error_type) extras.push(`тип ошибки: ${data.error_type}`);
       if (extras.length) { const meta = document.createElement("div"); meta.className = "event-meta"; meta.textContent = extras.join("\n"); main.append(meta); }
       if (data.excerpt && event.event === "model.message") addEventDetails(main, "Краткий ответ роли", data.excerpt);
       if (data.findings) addEventDetails(main, "Замечания ревью", data.findings);
       if (data.output && event.event === "check.result") addEventDetails(main, "Вывод проверки", data.output);
+      if (data.stderr) addEventDetails(main, "Ошибка исполнителя", data.stderr);
       if (data.cleanup_warning) addEventDetails(main, "Предупреждение GitHub", data.cleanup_warning);
       if (event.event === "worktree.created" && data.github_url) addGitHubLink(main, data.github_url, "Открыть issue / PR");
       if (["merge.completed", "merge.queued"].includes(event.event) && data.url) {
@@ -880,11 +883,22 @@
     async function poll() {
       if (!state.jobId || state.polling) return;
       state.polling = true;
+      const requestedJobId = state.jobId;
       try {
         const response = await fetch(`/api/runs/${encodeURIComponent(state.jobId)}?after=${state.lastEvent}`, {cache:"no-store"});
+        if (response.status === 404) {
+          clearInterval(state.timer); state.timer = null; state.jobId = null;
+          $("runStatus").textContent = "Задача недоступна: возможно, сервер перезапущен. Рабочая ветка остаётся в Git.";
+          $("startButton").disabled = false;
+          state.canBridge = false; syncBridgeButtons();
+          $("confirmMergeButton").style.display = "none"; $("discardWorktreeButton").style.display = "none";
+          $("cancelButton").style.display = "none"; return;
+        }
         if (!response.ok) throw new Error("Не удалось получить события задачи");
         const job = await response.json();
+        if (state.jobId !== requestedJobId) return;
         job.events.forEach(applyEvent);
+        state.canBridge = job.can_bridge; syncBridgeButtons();
         $("runStatus").textContent = statusLabel(job.status) + (job.error ? ` · ${job.error}` : "");
         const confirmButton = $("confirmMergeButton"), discardButton = $("discardWorktreeButton");
         confirmButton.style.display = job.can_confirm ? "inline-flex" : "none";
@@ -894,9 +908,9 @@
         } else if (job.can_confirm) {
           confirmButton.textContent = "✓　Подтвердить слияние";
         }
+        discardButton.disabled = !job.can_discard;
         discardButton.style.display = job.can_discard ? "inline-flex" : "none";
         if (job.status === "awaiting_confirmation") {
-          clearInterval(state.timer); state.timer = null;
           $("cancelButton").style.display = "none"; $("startButton").disabled = true;
           $("startButton").textContent = "Ожидается решение по слиянию";
           const banner = $("resultBanner"); banner.classList.add("show");
@@ -909,7 +923,10 @@
           if (job.result) {
             state.tokens = Number(job.result.run_tokens || state.tokens); state.calls = Number(job.result.model_calls || state.calls);
             $("tokensMetric").textContent = state.tokens.toLocaleString(); $("callsMetric").textContent = `${state.calls} / ${state.maxCalls || state.calls}`;
-            if (job.result.branch) $("resultText").textContent += ` Ветка: ${job.result.branch}.`;
+            if (job.result.branch) {
+              const suffix = ` Ветка: ${job.result.branch}.`;
+              if (!$("resultText").textContent.endsWith(suffix)) $("resultText").textContent += suffix;
+            }
           }
           if (!job.can_discard) discardButton.style.display = "none";
           loadHistory();
@@ -917,7 +934,7 @@
           confirmButton.style.display = "none"; discardButton.style.display = "none";
           $("startButton").disabled = true; $("cancelButton").style.display = "block";
         }
-      } catch (error) { toast(error.message); clearInterval(state.timer); state.timer = null; }
+      } catch (error) { $("runStatus").textContent = `Связь с панелью прервана: ${error.message}. Повторяю запрос…`; }
       finally { state.polling = false; }
     }
     function collectSettings() {
@@ -973,7 +990,7 @@
           ? "Ключ хранится в файле с правами 0600 и не попадает в settings.json. Маска показана вместо самого ключа."
           : "Ключей нет: доступен только локальный сервер (Ollama, LM Studio) или Codex CLI.";
         state.apiKeys = keys;
-      } catch (error) { $("apiKeysSource").textContent = `Ключи не读: ${error.message}`; }
+      } catch (error) { $("apiKeysSource").textContent = `Не удалось прочитать ключи: ${error.message}`; }
     }
     async function postKey(provider, body) {
       const response = await fetch(`/api/keys/${encodeURIComponent(provider)}`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
@@ -985,7 +1002,7 @@
     }
     function syncBridgeButtons() {
       const job = state.jobId;
-      const usable = Boolean(job) && state.status !== null;
+      const usable = Boolean(job) && state.canBridge && !state.bridgeBusy;
       $("bridgePromptButton").disabled = !usable;
       $("bridgeApplyButton").disabled = !usable || !$("bridgeAnswer").value.trim();
       $("copyBridgePrompt").disabled = !$("bridgePromptText").value;
@@ -993,7 +1010,7 @@
     async function buildBridgePrompt() {
       if (!state.jobId) return;
       $("bridgeState").textContent = "Собираю задачу, diff и текущие проверки…";
-      $("bridgePromptButton").disabled = true;
+      state.bridgeBusy = true; syncBridgeButtons();
       try {
         const response = await fetch("/api/bridge/prompt", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({run: state.jobId})});
         const data = await response.json();
@@ -1003,14 +1020,15 @@
         $("bridgeState").textContent = `Промпт готов (${data.chars} символов, падающих проверок: ${failed}). Скопируй его в приложение ChatGPT.`;
         syncBridgeButtons();
       } catch (error) { $("bridgeState").textContent = error.message; }
-      finally { syncBridgeButtons(); }
+      finally { state.bridgeBusy = false; syncBridgeButtons(); await poll(); }
     }
     async function applyBridgeAnswer() {
       if (!state.jobId) return;
       const answer = $("bridgeAnswer").value;
       if (!answer.trim()) { toast("Вставь ответ ChatGPT."); return; }
       $("bridgeState").textContent = "Применяю ответ в изолированном worktree и запускаю проверки…";
-      $("bridgeApplyButton").disabled = true;
+      state.bridgeBusy = true; syncBridgeButtons();
+      clearInterval(state.timer); state.timer = setInterval(poll, 1000);
       try {
         const response = await fetch("/api/bridge/apply", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({run: state.jobId, answer})});
         const data = await response.json();
@@ -1018,14 +1036,14 @@
         const report = data.report || {};
         const applied = (report.applied || []).length, rejected = (report.rejected || []).length;
         (report.rejected || []).forEach(item => toast(`Отклонено ${item.path}: ${item.error}`));
-        $("bridgeState").textContent = data.checks_passed
+        $("bridgeState").textContent = data.checks_passed && data.review_passed
           ? `Файлов применено: ${applied}. Проверки прошли — подтверди слияние.`
           : `Файлов применено: ${applied}${rejected ? `, отклонено: ${rejected}` : ""}. Проверки не прошли — пришли исправленный ответ.`;
-        $("bridgeAnswer").value = "";
+        if (data.checks_passed && data.review_passed) $("bridgeAnswer").value = "";
         loadHistory();
         await poll();
       } catch (error) { $("bridgeState").textContent = error.message; }
-      finally { syncBridgeButtons(); }
+      finally { state.bridgeBusy = false; syncBridgeButtons(); await poll(); }
     }
     function markSettingsDirty() {
       if (!state.settingsLoaded) return;
@@ -1037,7 +1055,8 @@
     }
     async function saveSettings(showToast = true) {
       clearTimeout(state.settingsTimer); state.settingsTimer = null;
-      if (!state.settingsLoaded || state.settingsSaving) return;
+      if (!state.settingsLoaded) return;
+      if (state.settingsSaving) { state.settingsPending = true; return; }
       state.settingsSaving = true; $("saveSettings").disabled = true;
       $("settingsState").textContent = "Сохраняю…";
       try {
@@ -1051,6 +1070,10 @@
         return data.settings;
       } finally {
         state.settingsSaving = false; $("saveSettings").disabled = false;
+        if (state.settingsPending) {
+          state.settingsPending = false;
+          await saveSettings(false);
+        }
       }
     }
     function applySettings(settings, defaultRepo, checkSuggestions, projectContext = "") {
@@ -1062,8 +1085,8 @@
       $("profession").value = s.profession || "developer";
       $("router").value = s.router || "local";
       $("lane").value = s.lane || "";
-      $("lunaModel").value = s.luna_model || "gpt-6-luna";
-      $("solModel").value = s.sol_model || "gpt-6-sol";
+      $("lunaModel").value = s.luna_model || "";
+      $("solModel").value = s.sol_model || "";
       $("reviewModel").value = s.review_model || "";
       $("executor").value = s.executor || "codex";
       $("apiModel").value = s.api_model || "";
@@ -1408,7 +1431,21 @@
         loadEnvironment();
         loadJevKey();
         loadProjects();
+        if (!state.jobId && (data.active_job || data.latest_job)) {
+          state.jobId = data.active_job || data.latest_job; state.lastEvent = 0;
+          state.timer = setInterval(poll, 1000); await poll();
+        }
       } catch (error) { toast(`Не удалось загрузить панель: ${error.message}`); $("settingsState").textContent = "Настройки недоступны."; }
+    }
+    async function openRun(jobId) {
+      clearInterval(state.timer);
+      state.jobId = jobId; state.lastEvent = 0; state.calls = 0; state.tokens = 0;
+      state.files.clear(); state.checkMap.clear(); state.canBridge = false;
+      $("timeline").replaceChildren(); $("checksList").replaceChildren(); $("filesList").replaceChildren();
+      $("resultTitle").textContent = ""; $("resultText").textContent = "";
+      $("resultBanner").classList.remove("show", "fail");
+      stepIds.forEach(id => setStage(id, ""));
+      state.timer = setInterval(poll, 1000); await poll();
     }
     async function loadHistory() {
       try {
@@ -1420,6 +1457,15 @@
           const card = document.createElement("div"); card.className = "history-entry";
           const title = document.createElement("strong"); title.textContent = `${entry.status || "run"} · ${entry.github_url || entry.repo || "задача"}`;
           const meta = document.createElement("span"); meta.textContent = `${entry.timestamp || ""} · ${entry.branch || "без ветки"} · ${Number(entry.run_tokens || 0).toLocaleString()} токенов · merge: ${entry.merge_status || "нет"}`;
+          if (entry.worktree_path) {
+            const path = document.createElement("span"); path.textContent = `Worktree: ${entry.worktree_path}`;
+            card.append(path);
+          }
+          if (entry.available) {
+            const open = document.createElement("button"); open.type = "button";
+            open.textContent = "Открыть запуск"; open.addEventListener("click", () => openRun(entry.job_id));
+            card.append(open);
+          }
           card.append(title, meta); root.append(card);
         });
       } catch (_) { /* History is optional observability, not a run dependency. */ }
@@ -1488,7 +1534,7 @@
         if (settings.router === "jev" || settings.merge_policy === "jev_auto") showJev({}, "Jev будет участвовать в маршрутизации или финальном решении о слиянии…"); else $("jevCard").classList.remove("show");
         stepIds.forEach(id => setStage(id, "")); activateStage("preflight");
         $("runStatus").textContent = "Подготовка задачи…"; $("startButton").textContent = "Задача выполняется"; $("cancelButton").style.display = "block";
-        state.timer = setInterval(poll, 500); await poll();
+        clearInterval(state.timer); state.timer = setInterval(poll, 500); await poll();
       } catch (error) {
         $("startButton").disabled = false; $("startButton").textContent = state.mode === "full" ? "▶　Запустить полный цикл" : "▶　Запустить бережливый цикл";
         toast(error.message);
@@ -1496,7 +1542,11 @@
     }
     async function cancelRun() {
       if (!state.jobId) return;
-      try { await fetch(`/api/runs/${encodeURIComponent(state.jobId)}/cancel`, {method:"POST"}); toast("Отмена запрошена"); }
+      try {
+        const response = await fetch(`/api/runs/${encodeURIComponent(state.jobId)}/cancel`, {method:"POST"});
+        if (!response.ok) throw new Error("Отмена не принята");
+        toast("Отмена запрошена");
+      }
       catch (_) { toast("Не удалось запросить отмену"); }
     }
     async function confirmMerge() {
@@ -1509,7 +1559,7 @@
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Не удалось запустить слияние");
         $("confirmMergeButton").style.display = "none"; $("runStatus").textContent = "Выполняю подтверждённое слияние…";
-        state.timer = setInterval(poll, 500); await poll();
+        clearInterval(state.timer); state.timer = setInterval(poll, 500); await poll();
       } catch (error) { $("confirmMergeButton").disabled = false; toast(error.message); }
     }
     async function discardWorktree() {
@@ -1519,7 +1569,7 @@
         const response = await fetch(`/api/runs/${encodeURIComponent(state.jobId)}/discard`, {method:"POST"});
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Не удалось удалить worktree");
-        $("discardWorktreeButton").style.display = "none"; state.timer = setInterval(poll, 500); await poll();
+        $("discardWorktreeButton").style.display = "none"; clearInterval(state.timer); state.timer = setInterval(poll, 500); await poll();
       } catch (error) { $("discardWorktreeButton").disabled = false; toast(error.message); }
     }
     function updateCostPreview() {

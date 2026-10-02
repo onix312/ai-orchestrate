@@ -25,6 +25,8 @@ from .core import (
     split_command,
     truncate_text,
 )
+from .gitops import worktree_digest
+from .endpoints import endpoint_provider
 from .llm_api import ApiConfig, run_llm_api
 from .prompts import PROFESSIONS, build_developer_prompt, build_planning_prompt, build_reviewer_prompt
 from .secrets import active_key
@@ -72,16 +74,16 @@ def _emit(callback: Callable[..., None], event: str, stage: str, message: str,
     })
 
 
-def _api_provider_id(base_url: str) -> str:
+def _api_provider_id(base_url: str) -> str | None:
     """Pick the stored key that matches the endpoint the request will hit."""
-    return "openrouter" if "openrouter.ai" in base_url.lower() else "openai"
+    return endpoint_provider(base_url)
 
 
 def _api_config(request: WorkflowRequest) -> ApiConfig:
     base_url = request.api_base_url.strip() or "https://api.openai.com/v1"
     return ApiConfig(
         base_url=base_url,
-        api_key=active_key(_api_provider_id(base_url)),
+        api_key=active_key(provider) if (provider := _api_provider_id(base_url)) else "",
         model=request.api_model.strip(),
         timeout=request.codex_timeout,
         max_rounds=request.api_max_rounds,
@@ -90,10 +92,8 @@ def _api_config(request: WorkflowRequest) -> ApiConfig:
 
 def _api_key_or_local(base_url: str) -> bool:
     """A keyless endpoint is allowed for localhost (Ollama, LM Studio) and nothing else."""
-    host = (base_url.strip() or "https://api.openai.com/v1").lower()
-    if any(token in host for token in ("127.0.0.1", "localhost", "0.0.0.0", "[::1]")):
-        return True
-    return bool(active_key(_api_provider_id(host)))
+    provider = endpoint_provider(base_url)
+    return provider is None or bool(active_key(provider))
 
 
 def _prepare_request(request: WorkflowRequest) -> WorkflowRequest:
@@ -255,6 +255,8 @@ def run_workflow(
     emit: Callable[[dict[str, Any]], None],
     cancel_event: Event,
     usage_path: Path,
+    verification_only: bool = False,
+    review_base: str | None = None,
 ) -> dict[str, Any]:
     """Run the full bounded planner → coder → checks → reviewer → repair cycle."""
     started = time.monotonic()
@@ -352,7 +354,8 @@ def run_workflow(
             result = run_llm_api(
                 repo, prompt, call_model, config=config, sandbox=sandbox,
                 on_event=on_codex_event, cancel_event=cancel_event,
-                token_budget=max(request.max_run_tokens - run_tokens, 0),
+                token_budget=max(min(request.max_run_tokens - run_tokens,
+                                     request.daily_token_budget - daily_start - run_tokens), 0),
                 command_timeout=request.check_timeout,
             )
         else:
@@ -391,10 +394,10 @@ def run_workflow(
               f"{role}: завершено за {elapsed:.1f} с, exit {result.returncode}.", role=role,
               data={"model": call_model, "effort": call_effort,
                     "returncode": result.returncode, "elapsed_seconds": elapsed,
-                    "cancelled": result.cancelled})
+                    "cancelled": result.cancelled, "stderr": truncate_text(result.stderr, 1800)})
         return result
 
-    if request.mode == "full":
+    if request.mode == "full" and not verification_only:
         plan_prompt = build_planning_prompt(request.task)
         _emit(emit, "stage.started", "planning", "Аналитик формирует критерии, архитектор — короткий план.",
               role="Аналитик + архитектор")
@@ -403,7 +406,8 @@ def run_workflow(
         if plan_result.cancelled or cancel_event.is_set():
             raise WorkflowStopped("Планирование отменено.")
         if plan_result.returncode != 0:
-            raise WorkflowStopped("Не удалось завершить этап аналитика/архитектора.")
+            raise WorkflowStopped(f"Не удалось завершить этап аналитика/архитектора (exit {plan_result.returncode}). "
+                                  + truncate_text(plan_result.stderr, 1800))
         plan = truncate_text(plan_result.final_message.strip(), 3500)
         _emit(emit, "stage.completed", "planning",
               "План готов." if plan else "План не получен; разработчик продолжит по исходной задаче.",
@@ -411,27 +415,28 @@ def run_workflow(
 
     repair_feedback = ""
     repair_count = 0
-    max_iterations = request.max_repairs + 1
+    max_iterations = 1 if verification_only else request.max_repairs + 1
     for iteration in range(1, max_iterations + 1):
         profession_name = next((item.title for item in PROFESSIONS if item.key == request.profession), "Разработчик")
-        _emit(emit, "stage.started", "implementation",
-              f"{profession_name} приступает к реализации.", role=profession_name,
-              data={"iteration": iteration, "lane": lane_name, "model": model, "effort": effort})
-        developer_prompt = build_developer_prompt(
-            request.profession,
-            request.task,
-            plan=plan,
-            repair_feedback=repair_feedback,
-            checks=checks,
-        )
-        last_model_result = model_call(profession_name, "implementation", developer_prompt,
-                                       call_model=model, call_effort=effort, sandbox="workspace-write")
-        if last_model_result.cancelled or cancel_event.is_set():
-            raise WorkflowStopped("Реализация отменена.")
-        _emit(emit, "stage.completed", "implementation",
-              "Модель завершила правки." if last_model_result.returncode == 0 else "Модель завершилась с ошибкой.",
-              role=profession_name, data={"returncode": last_model_result.returncode,
-                                          "passed": last_model_result.returncode == 0})
+        if not verification_only:
+            _emit(emit, "stage.started", "implementation",
+                  f"{profession_name} приступает к реализации.", role=profession_name,
+                  data={"iteration": iteration, "lane": lane_name, "model": model, "effort": effort})
+            developer_prompt = build_developer_prompt(
+                request.profession,
+                request.task,
+                plan=plan,
+                repair_feedback=repair_feedback,
+                checks=checks,
+            )
+            last_model_result = model_call(profession_name, "implementation", developer_prompt,
+                                           call_model=model, call_effort=effort, sandbox="workspace-write")
+            if last_model_result.cancelled or cancel_event.is_set():
+                raise WorkflowStopped("Реализация отменена.")
+            _emit(emit, "stage.completed", "implementation",
+                  "Модель завершила правки." if last_model_result.returncode == 0 else "Модель завершилась с ошибкой.",
+                  role=profession_name, data={"returncode": last_model_result.returncode,
+                                              "passed": last_model_result.returncode == 0})
 
         _emit(emit, "stage.started", "testing", "Запускаю детерминированные проверки проекта.", role="QA / тестирование")
         all_checks = run_checks(repo, checks, timeout=request.check_timeout, on_event=lambda event, data: _emit(
@@ -458,11 +463,12 @@ def run_workflow(
               "Все обязательные проверки прошли." if checks_passed else "Есть неуспешные проверки.",
               role="QA / тестирование", data={"passed": checks_passed, "count": len(all_checks)})
         implementation_passed = last_model_result.returncode == 0 and checks_passed
+        verified_digest = worktree_digest(repo) if implementation_passed else ""
 
         if implementation_passed and request.mode == "full":
             _emit(emit, "stage.started", "review", "Ревьюер независимо проверяет diff и результаты тестов.",
                   role="Ревьюер")
-            diff, status = git_snapshot(repo, max_chars=9000)
+            diff, status = git_snapshot(repo, max_chars=9000, **({"base": review_base} if review_base else {}))
             reviewer_model = _review_model(
                 model,
                 requested=request.review_model,
@@ -475,7 +481,8 @@ def run_workflow(
             if review_result.cancelled or cancel_event.is_set():
                 raise WorkflowStopped("Ревью отменено.")
             if review_result.returncode != 0:
-                raise WorkflowStopped("Независимый ревьюер завершился с ошибкой.")
+                raise WorkflowStopped(f"Независимый ревьюер завершился с ошибкой (exit {review_result.returncode}). "
+                                      + truncate_text(review_result.stderr, 1800))
             final_review = review_result.final_message.strip()
             review_ok = review_passed(final_review)
             _emit(emit, "stage.completed", "review",
@@ -484,6 +491,7 @@ def run_workflow(
             if review_ok:
                 result = _finish("complete", request, lane_name, model_calls, run_tokens, prompt_tokens,
                                  started, all_checks, plan, final_review)
+                result["verified_digest"] = verified_digest
                 _emit(emit, "run.completed", "final", "Полный цикл завершён успешно.", role="Итог", data=result)
                 return result
             repair_feedback = "Ревьюер сообщил:\n" + truncate_text(final_review, 2500)
@@ -491,12 +499,14 @@ def run_workflow(
         elif implementation_passed:
             result = _finish("complete", request, lane_name, model_calls, run_tokens, prompt_tokens,
                              started, all_checks, plan, "")
+            result["verified_digest"] = verified_digest
             _emit(emit, "run.completed", "final", "Задача завершена: проверки прошли.", role="Итог", data=result)
             return result
 
         if not implementation_passed:
             repair_feedback = (
                 f"Кодер завершился с exit {last_model_result.returncode}.\n"
+                f"{truncate_text(last_model_result.stderr, 1800)}\n"
                 f"Проверки:\n{format_checks(all_checks, limit=3000)}"
             )
         if iteration >= max_iterations:
@@ -516,7 +526,8 @@ def run_workflow(
     final_status = "incomplete"
     result = _finish(final_status, request, lane_name, model_calls, run_tokens, prompt_tokens,
                      started, all_checks, plan, final_review)
-    _emit(emit, "run.incomplete", "final", "Цикл остановлен: остались ошибки или замечания.",
+    result["failure_reason"] = repair_feedback
+    _emit(emit, "run.incomplete", "final", "Цикл остановлен: " + repair_feedback,
           role="Итог", data=result)
     return result
 

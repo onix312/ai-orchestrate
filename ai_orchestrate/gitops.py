@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import hashlib
 import re
 import shutil
 import subprocess
@@ -134,8 +135,8 @@ def create_worktree(
     else:
         raise OrchestratorError("Рабочая копия не может создаваться внутри исходного репозитория.")
 
-    git(repo, ["worktree", "add", "-b", branch, str(path), base_ref], timeout=180)
     base_sha = git(repo, ["rev-parse", "--verify", base_ref]).stdout.strip()
+    git(repo, ["worktree", "add", "-b", branch, str(path), base_sha], timeout=180)
     return Worktree(repo=repo, path=path.resolve(), branch=branch, base_branch=base_branch,
                     base_sha=base_sha, base_ref=base_ref)
 
@@ -148,21 +149,66 @@ _SENSITIVE_NAME = re.compile(
 
 
 def _changed_paths(status: str) -> list[str]:
+    """Parse porcelain v1 -z, including both sides of renames; never unquote names."""
+    entries = iter(status.split("\0"))
     paths: list[str] = []
-    for line in status.splitlines():
-        if len(line) < 4:
+    for entry in entries:
+        if len(entry) < 4:
             continue
-        path = line[3:]
-        if " -> " in path:
-            path = path.rsplit(" -> ", 1)[1]
-        if path.startswith('"') and path.endswith('"'):
-            path = path[1:-1]
-        paths.append(path.replace("\\", "/"))
+        paths.append(entry[3:])
+        if "R" in entry[:2] or "C" in entry[:2]:
+            source = next(entries, "")
+            if source:
+                paths.append(source)
     return paths
 
 
-def commit_worktree(worktree: Worktree, message: str) -> dict[str, str | bool | list[str]]:
-    status = git(worktree.path, ["status", "--porcelain", "--untracked-files=all"]).stdout
+def verify_worktree(worktree: Worktree, expected_sha: str, *, clean: bool = True) -> None:
+    if current_branch(worktree.path) != worktree.branch:
+        raise OrchestratorError("Рабочая копия переключена на другую ветку; операция остановлена.")
+    actual = git(worktree.path, ["rev-parse", "--verify", "HEAD"]).stdout.strip()
+    if actual != expected_sha:
+        raise OrchestratorError("Рабочая ветка изменилась после проверки; требуется новый цикл проверок и ревью.")
+    if clean and git(worktree.path, ["status", "--porcelain", "--untracked-files=all"]).stdout.strip():
+        raise OrchestratorError("После проверки в worktree появились изменения; слияние запрещено.")
+
+
+def worktree_digest(repo: Path) -> str:
+    """Bind verification to file contents, including untracked files and executable bits.
+
+    Git-ignored build/dependency files are excluded. Symlinks are hashed, never followed.
+    The digest stays stable when these exact files are staged and committed.
+    """
+    names = git(repo, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"]).stdout.split("\0")
+    digest = hashlib.sha256()
+    for name in sorted(set(names) - {""}):
+        path = repo / name
+        if not path.exists() and not path.is_symlink():
+            continue
+        digest.update(name.encode("utf-8") + b"\0")
+        if path.is_symlink():
+            digest.update(b"symlink:" + os.fsencode(os.readlink(path)) + b"\0")
+        elif path.is_file():
+            try:
+                path.resolve().relative_to(repo.resolve())
+            except ValueError as exc:
+                raise OrchestratorError("Файл перенаправлен за пределы worktree: " + name) from exc
+            digest.update(b"executable:" + str(bool(path.stat().st_mode & 0o111)).encode() + b"\0")
+            content = hashlib.sha256()
+            with path.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    content.update(chunk)
+            digest.update(content.digest())
+        else:
+            raise OrchestratorError("Автоматическая проверка вложенных Git/submodule-каталогов не поддерживается: " + name)
+    return digest.hexdigest()
+
+
+def commit_worktree(worktree: Worktree, message: str, *, expected_head: str | None = None, verified_digest: str | None = None) -> dict[str, str | bool | list[str]]:
+    verify_worktree(worktree, expected_head or worktree.base_sha, clean=False)
+    if verified_digest and worktree_digest(worktree.path) != verified_digest:
+        raise OrchestratorError("Файлы изменились после проверок/ревью; commit запрещён.")
+    status = git(worktree.path, ["status", "--porcelain", "-z", "--untracked-files=all"]).stdout
     if not status.strip():
         return {"committed": False, "sha": "", "files": []}
     sensitive = [name for name in _changed_paths(status) if _SENSITIVE_NAME.search(name)]
@@ -172,8 +218,8 @@ def commit_worktree(worktree: Worktree, message: str) -> dict[str, str | bool | 
             + ", ".join(sensitive[:8])
         )
     git(worktree.path, ["add", "--all"])
-    staged = git(worktree.path, ["diff", "--cached", "--name-only"]).stdout.splitlines()
-    if not staged:
+    staged = git(worktree.path, ["diff", "--cached", "--name-only", "-z"]).stdout.rstrip("\0").split("\0")
+    if not any(staged):
         return {"committed": False, "sha": "", "files": []}
     checked = git(worktree.path, ["diff", "--cached", "--check"], check=False)
     if checked.returncode != 0:
@@ -182,6 +228,8 @@ def commit_worktree(worktree: Worktree, message: str) -> dict[str, str | bool | 
     if not safe_message:
         safe_message = "AI-assisted change"
     git(worktree.path, ["commit", "-m", safe_message], timeout=180)
+    if verified_digest and worktree_digest(worktree.path) != verified_digest:
+        raise OrchestratorError("Git hook или внешний процесс изменил проверенные файлы; слияние запрещено.")
     sha = git(worktree.path, ["rev-parse", "--verify", "HEAD"]).stdout.strip()
     return {"committed": True, "sha": sha, "files": staged}
 
@@ -208,13 +256,15 @@ def verify_merge_target(worktree: Worktree) -> None:
         raise OrchestratorError("Рабочая ветка больше не основана на сохранённом состоянии целевой ветки.")
 
 
-def merge_local(worktree: Worktree) -> str:
+def merge_local(worktree: Worktree, *, expected_sha: str | None = None) -> str:
+    sha = expected_sha or git(worktree.path, ["rev-parse", "--verify", "HEAD"]).stdout.strip()
+    verify_worktree(worktree, sha)
     verify_merge_target(worktree)
-    git(worktree.repo, ["merge", "--ff-only", "--no-edit", worktree.branch], timeout=180)
+    git(worktree.repo, ["merge", "--ff-only", "--no-edit", sha], timeout=180)
     return git(worktree.repo, ["rev-parse", "--verify", "HEAD"]).stdout.strip()
 
 
-def remove_worktree(worktree: Worktree, *, delete_branch: bool = False, force: bool = False) -> None:
+def remove_worktree(worktree: Worktree, *, delete_branch: bool = False, force: bool = False, force_branch: bool = False) -> None:
     if worktree.path.exists():
         args = ["worktree", "remove"]
         if force:
@@ -222,7 +272,7 @@ def remove_worktree(worktree: Worktree, *, delete_branch: bool = False, force: b
         args.append(str(worktree.path))
         git(worktree.repo, args, timeout=120)
     if delete_branch:
-        result = git(worktree.repo, ["branch", "-d" if not force else "-D", worktree.branch], check=False)
+        result = git(worktree.repo, ["branch", "-D" if force or force_branch else "-d", worktree.branch], check=False)
         if result.returncode != 0:
             # A successful merge can make the branch removable; report real failures only when it remains.
             if git(worktree.repo, ["show-ref", "--verify", f"refs/heads/{worktree.branch}"], check=False).returncode == 0:

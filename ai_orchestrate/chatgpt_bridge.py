@@ -1,10 +1,8 @@
 """ChatGPT bridge: a human-in-the-loop round trip through the ChatGPT app.
 
-The panel cannot and must not automate the ChatGPT client — extracting output programmatically
-is prohibited by OpenAI's terms of use, and this repository documents the same rule. What it can
-do is prepare everything for you: build one copy-paste prompt (task + bounded diff + the exact
-failing checks), and then take the answer you paste back, apply it inside the isolated worktree
-and re-run the project's own checks.
+The panel does not automate the ChatGPT client. It builds a copy-paste prompt (task,
+bounded diff and saved check output), accepts a manually pasted answer, validates all
+file operations before writing and re-runs the required verification gates.
 
 Two answer formats are accepted, because chat models are unreliable at diff syntax:
 
@@ -29,6 +27,8 @@ Two answer formats are accepted, because chat models are unreliable at diff synt
 from __future__ import annotations
 
 import re
+import os
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -44,7 +44,7 @@ _FENCE_RE = re.compile(r"^```[A-Za-z0-9_+-]*\s*$")
 
 @dataclass
 class FileOperation:
-    op: str  # "write" | "patch" | "delete"
+    op: str  # "write" | "add" | "patch" | "delete"
     path: str
     content: str = ""
     hunks: list[list[str]] = field(default_factory=list)
@@ -120,163 +120,176 @@ def build_bridge_prompt(
 
 
 def parse_answer(answer: str) -> list[FileOperation]:
-    """Extract file operations from a pasted ChatGPT answer."""
+    """Parse complete blocks only. Truncated answers must never overwrite files."""
     if not isinstance(answer, str) or not answer.strip():
         raise OrchestratorError("Ответ ChatGPT пустой.")
     if len(answer) > MAX_ANSWER_CHARS:
-        raise OrchestratorError(f"Ответ длиннее {MAX_ANSWER_CHARS} символов — пришли его частями.")
-    operations: list[FileOperation] = []
-    operations.extend(_parse_file_blocks(answer))
-    operations.extend(_parse_patch_blocks(answer))
-    if not operations:
-        raise OrchestratorError(
-            "В ответе не нашлось ни одного блока файла. Нужны блоки `### FILE: путь` "
-            "или `*** Begin Patch … *** End Patch`."
-        )
-    if len(operations) > MAX_FILES_PER_ANSWER:
-        raise OrchestratorError(f"Слишком много файлов в одном ответе (>{MAX_FILES_PER_ANSWER}).")
-    return operations
-
-
-def _strip_fence(lines: list[str]) -> list[str]:
-    if len(lines) >= 2 and _FENCE_RE.match(lines[0].strip()) and lines[-1].strip() == "```":
-        return lines[1:-1]
-    return lines
-
-
-def _parse_file_blocks(answer: str) -> list[FileOperation]:
+        raise OrchestratorError(f"Ответ длиннее {MAX_ANSWER_CHARS} символов.")
     operations: list[FileOperation] = []
     lines = answer.splitlines()
     index = 0
     while index < len(lines):
         header = _FILE_HEADER_RE.match(lines[index].strip())
-        if not header:
+        if header:
+            path = header.group("path").strip().strip("`")
             index += 1
-            continue
-        path = header.group("path").strip().strip("`").strip()
-        index += 1
-        if index < len(lines) and _FENCE_RE.match(lines[index].strip()):
+            if index >= len(lines) or not _FENCE_RE.fullmatch(lines[index].strip()):
+                raise OrchestratorError("Блок ### FILE должен содержать открывающую и закрывающую ```.")
             index += 1
-            body: list[str] = []
+            body = []
             while index < len(lines) and lines[index].strip() != "```":
                 body.append(lines[index])
                 index += 1
-            index += 1  # closing fence
-        else:
-            body = []
-            while index < len(lines) and not _FILE_HEADER_RE.match(lines[index].strip()):
-                body.append(lines[index])
+            if index >= len(lines):
+                raise OrchestratorError("Ответ оборван: нет закрывающей ```.")
+            operations.append(FileOperation("write", path, "\n".join(body) + ("\n" if body else "")))
+        elif lines[index].strip() == "*** Begin Patch":
+            index += 1
+            current = None
+            while index < len(lines) and lines[index].strip() != "*** End Patch":
+                line = lines[index]
+                match = re.fullmatch(r"\*\*\* (Update|Add|Delete) File: (.+)", line)
+                if match:
+                    kind, path = match.groups()
+                    current = FileOperation({"Update": "patch", "Add": "add", "Delete": "delete"}[kind], path)
+                    operations.append(current)
+                elif current is not None and current.op == "patch" and line.startswith("@@"):
+                    current.hunks.append([])
+                elif current is not None and current.op == "patch" and line[:1] in {" ", "+", "-"}:
+                    if not current.hunks:
+                        current.hunks.append([])
+                    current.hunks[-1].append(line)
+                elif current is not None and current.op == "add" and line.startswith("+"):
+                    current.content += line[1:] + "\n"
+                else:
+                    raise OrchestratorError("Некорректная строка патча: " + line[:120])
                 index += 1
-        operations.append(FileOperation("write", path, "\n".join(body).rstrip("\n") + "\n"))
+            if index >= len(lines):
+                raise OrchestratorError("Ответ оборван: отсутствует *** End Patch.")
+        index += 1
+    if not operations:
+        raise OrchestratorError("В ответе нет блоков ### FILE или *** Begin Patch … *** End Patch.")
+    if len(operations) > MAX_FILES_PER_ANSWER:
+        raise OrchestratorError(f"Слишком много файлов (>{MAX_FILES_PER_ANSWER}).")
     return operations
 
 
-def _parse_patch_blocks(answer: str) -> list[FileOperation]:
-    operations: list[FileOperation] = []
-    lines = _strip_fence(answer.splitlines())
-    index = 0
-    while index < len(lines):
-        if lines[index].strip() != "*** Begin Patch":
-            index += 1
-            continue
-        index += 1
-        current: FileOperation | None = None
-        while index < len(lines) and lines[index].strip() != "*** End Patch":
-            line = lines[index]
-            stripped = line.strip()
-            if stripped.startswith("*** Update File:") or stripped.startswith("*** Add File:"):
-                op = "patch" if stripped.startswith("*** Update File:") else "write"
-                path = stripped.split(":", 1)[1].strip()
-                current = FileOperation(op, path, hunks=[])
-                operations.append(current)
-            elif stripped.startswith("*** Delete File:"):
-                operations.append(FileOperation("delete", stripped.split(":", 1)[1].strip()))
-                current = None
-            elif current is not None and stripped.startswith("@@"):
-                pass  # hunk header: context marker only
-            elif current is not None:
-                current.hunks.append(line)
-            index += 1
-        index += 1
-    # `*** Add File` carries its content as `+` lines inside the same patch block.
-    for operation in operations:
-        if operation.op == "write" and not operation.content and operation.hunks:
-            added = [line[1:] if line.startswith("+") else "" for line in operation.hunks
-                     if line.startswith("+") or not line.strip()]
-            operation.content = "\n".join(added).rstrip("\n") + "\n"
-    return operations
+def _patched_content(text: str, hunks: list[list[str]]) -> str:
+    original = text.splitlines()
+    cursor = 0
+    result: list[str] = []
+    if not hunks:
+        raise OrchestratorError("В патче нет ни одной строки.")
+    for hunk in hunks:
+        search = [line[1:] for line in hunk if line.startswith((" ", "-"))]
+        replacement = [line[1:] for line in hunk if line.startswith((" ", "+"))]
+        if not search:
+            raise OrchestratorError("Для патча нужен непустой контекст.")
+        matches = [i for i in range(cursor, len(original) - len(search) + 1)
+                   if original[i:i + len(search)] == search]
+        if len(matches) != 1:
+            raise OrchestratorError("Контекст патча не совпал с файлом или неоднозначен — пришли файл целиком.")
+        start = matches[0]
+        result.extend(original[cursor:start])
+        result.extend(replacement)
+        cursor = start + len(search)
+    result.extend(original[cursor:])
+    return "\n".join(result) + ("\n" if text.endswith("\n") and result else "")
+
+
+def _atomic_write(path: Path, content: bytes, mode: int | None) -> None:
+    fd, name = tempfile.mkstemp(prefix=".bridge-", dir=path.parent)
+    temp = Path(name)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if mode is not None:
+            temp.chmod(mode)
+        os.replace(temp, path)
+    finally:
+        temp.unlink(missing_ok=True)
 
 
 def apply_operations(worktree: Path, operations: list[FileOperation]) -> ApplyReport:
-    """Apply parsed operations inside the worktree. Never touches anything outside it."""
-    root = worktree.expanduser().resolve(strict=False)
-    if not root.is_dir():
-        raise OrchestratorError(f"Рабочая копия не найдена: {root}")
+    """Prevalidate the entire answer, then apply; roll back writes on an I/O failure."""
+    root = worktree.expanduser().resolve(strict=True)
     report = ApplyReport()
+    prepared = []
+    seen: set[Path] = set()
     for operation in operations:
         try:
-            if operation.op == "delete":
-                path = safe_join(root, operation.path)
-                path.unlink()
-                report.applied.append({"path": operation.path, "op": "delete"})
-                continue
             path = safe_join(root, operation.path)
-            if operation.op == "write":
-                if len(operation.content) > MAX_FILE_CHARS:
-                    raise OrchestratorError("Файл слишком большой.")
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(operation.content, encoding="utf-8", newline="\n")
-                report.applied.append({"path": operation.path, "op": "write",
-                                       "chars": len(operation.content)})
-                continue
-            changed = _apply_hunks(path, operation.hunks)
-            report.applied.append({"path": operation.path, "op": "patch", "changed_lines": changed})
-        except (OrchestratorError, OSError, UnicodeDecodeError) as exc:
-            report.rejected.append({"path": operation.path, "op": operation.op,
-                                    "error": str(exc) or type(exc).__name__})
-    return report
-
-
-def _apply_hunks(path: Path, hunk_lines: list[str]) -> int:
-    if not path.is_file():
-        raise OrchestratorError("Файл для патча не найден — для нового файла используй *** Add File.")
+            if path in seen:
+                raise OrchestratorError("Один файл указан несколько раз.")
+            if any(path in other.parents or other in path.parents for other in seen):
+                raise OrchestratorError("Конфликт путей файла и каталога.")
+            seen.add(path)
+            if path.exists() and not path.is_file():
+                raise OrchestratorError("Путь не является обычным файлом.")
+            if path.exists() and path.stat().st_size > MAX_FILE_CHARS * 4:
+                raise OrchestratorError("Файл слишком большой.")
+            original = path.read_bytes() if path.exists() else None
+            mode = path.stat().st_mode & 0o777 if path.exists() else None
+            if operation.op == "delete":
+                if original is None:
+                    raise OrchestratorError("Удаляемый файл не найден.")
+                content = None
+            elif operation.op in {"write", "add"}:
+                if operation.op == "add" and original is not None:
+                    raise OrchestratorError("*** Add File не может перезаписать существующий файл.")
+                content = operation.content
+            elif operation.op == "patch":
+                if original is None:
+                    raise OrchestratorError("Файл для патча не найден.")
+                content = _patched_content(original.decode("utf-8"), operation.hunks)
+            else:
+                raise OrchestratorError("Неизвестная операция.")
+            if content is not None and len(content) > MAX_FILE_CHARS:
+                raise OrchestratorError("Файл слишком большой.")
+            prepared.append((operation, path, original, mode, content))
+        except (OrchestratorError, OSError, UnicodeError, ValueError) as exc:
+            report.rejected.append({"path": operation.path, "op": operation.op, "error": str(exc)})
+    if report.rejected:
+        return report
+    touched = []
+    directories = []
     try:
-        original = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError) as exc:
-        raise OrchestratorError(f"Не удалось прочитать файл ({type(exc).__name__}).") from exc
-
-    search: list[str] = []
-    replace: list[str] = []
-    for line in hunk_lines:
-        if not line:
-            search.append("")
-            replace.append("")
-        elif line[0] == " ":
-            search.append(line[1:])
-            replace.append(line[1:])
-        elif line[0] == "-":
-            search.append(line[1:])
-        elif line[0] == "+":
-            replace.append(line[1:])
-        else:
-            # A bare line inside a hunk is treated as context, like a lost leading space.
-            search.append(line)
-            replace.append(line)
-    if not search:
-        raise OrchestratorError("В патче нет ни одной строки.")
-
-    start = _find_sequence(original, search)
-    if start < 0:
-        raise OrchestratorError("Контекст патча не совпал с файлом — пришли файл целиком блоком ### FILE.")
-    result = original[:start] + replace + original[start + len(search):]
-    path.write_text("\n".join(result) + "\n", encoding="utf-8", newline="\n")
-    return len(replace)
-
-
-def _find_sequence(lines: list[str], search: list[str]) -> int:
-    if not search:
-        return -1
-    for index in range(0, len(lines) - len(search) + 1):
-        if lines[index:index + len(search)] == search:
-            return index
-    return -1
+        for operation, path, original, mode, content in prepared:
+            # Recheck immediately before mutation; don't silently follow a newly created symlink.
+            if safe_join(root, operation.path) != path or path.is_symlink():
+                raise OrchestratorError("Путь изменился во время применения ответа.")
+            if (path.read_bytes() if path.exists() else None) != original:
+                raise OrchestratorError("Файл изменился во время применения ответа.")
+            missing = []
+            parent = path.parent
+            while not parent.exists():
+                missing.append(parent)
+                parent = parent.parent
+            for directory in reversed(missing):
+                directory.mkdir()
+                directories.append(directory)
+            touched.append((path, original, mode))
+            if content is None:
+                path.unlink()
+            else:
+                _atomic_write(path, content.encode("utf-8"), mode)
+            report.applied.append({"path": operation.path, "op": operation.op})
+    except (OSError, OrchestratorError) as exc:
+        for path, original, mode in reversed(touched):
+            try:
+                if original is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    _atomic_write(path, original, mode)
+            except OSError as rollback_error:
+                report.rejected.append({"path": str(path), "op": "rollback", "error": str(rollback_error)})
+        for directory in reversed(directories):
+            try:
+                directory.rmdir()
+            except OSError:
+                pass
+        report.applied.clear()
+        report.rejected.append({"path": operation.path, "op": operation.op, "error": str(exc)})
+    return report
