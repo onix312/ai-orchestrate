@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
+from urllib.parse import parse_qs, urlsplit
 
 from ai_orchestrate.gitops import create_worktree
 from ai_orchestrate.settings import default_settings
@@ -101,6 +102,36 @@ class ApiEndpointTests(unittest.TestCase):
                 self._post("/api/bridge/apply", {"run": "id", "answer": "text"})
         self.assertEqual(caught.exception.code, 400)
         self.assertEqual(json.loads(caught.exception.read())["error"], "budget exhausted")
+
+    def test_desktop_task_handoff_opens_a_fresh_codex_chat_with_prefilled_prompt(self):
+        payload = self._post("/api/chatgpt/new-task", {
+            "repo": str(self.repo), "task": "Добавь настройку темы", "checks": "python -m unittest discover -s tests -t .",
+            "github_item": "https://github.com/example/project/issues/7",
+        })
+        link = urlsplit(payload["url"])
+        query = parse_qs(link.query)
+        self.assertEqual((link.scheme, link.netloc), ("codex", "new"))
+        self.assertEqual(query["path"], [str(self.repo.resolve())])
+        self.assertTrue(payload["prompt_in_url"])
+        self.assertIn("Добавь настройку темы", query["prompt"][0])
+        self.assertIn("python -m unittest discover -s tests -t .", query["prompt"][0])
+        self.assertIn("https://github.com/example/project/issues/7", query["prompt"][0])
+        self.assertEqual(set(query), {"path", "prompt"})
+
+    def test_desktop_handoff_keeps_long_prompt_out_of_deep_link_without_truncation(self):
+        task = "A" * 48_000
+        payload = self._post("/api/chatgpt/new-task", {"repo": str(self.repo), "task": task, "checks": ""})
+        query = parse_qs(urlsplit(payload["url"]).query)
+        self.assertFalse(payload["prompt_in_url"])
+        self.assertNotIn("prompt", query)
+        self.assertEqual(query["path"], [str(self.repo.resolve())])
+        self.assertIn(task, payload["prompt"])
+
+    def test_desktop_handoff_rejects_paths_outside_allowed_workspace(self):
+        with tempfile.TemporaryDirectory() as outside:
+            with self.assertRaises(HTTPError) as caught:
+                self._post("/api/chatgpt/new-task", {"repo": outside, "task": "Read files outside workspace"})
+        self.assertEqual(caught.exception.code, 400)
 
     def test_unknown_provider_is_rejected(self):
         with self.assertRaises(Exception):

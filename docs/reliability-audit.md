@@ -65,7 +65,7 @@ API-цикла и контроллера панели. Реальные плат
 
 ```sh
 python -m compileall -q ai_orchestrate tests
-python -m unittest discover -s tests
+python -m unittest discover -s tests -t .
 node tests/dashboard-regression.cjs
 git diff --check
 ```

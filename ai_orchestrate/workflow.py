@@ -187,7 +187,9 @@ def suggest_checks(repo: Path) -> list[str]:
         if shutil.which("pytest"):
             return ["pytest -q"]
     if (repo / "tests").is_dir() and shutil.which("python"):
-        return ["python -m unittest discover -s tests"]
+        # When tests is a package, anchor imports at the repository root (works reliably on Windows too).
+        top_level = " -t ." if (repo / "tests" / "__init__.py").is_file() else ""
+        return [f"python -m unittest discover -s tests{top_level}"]
     if (repo / "pyproject.toml").is_file() and shutil.which("python"):
         return ["python -m compileall -q ."]
     return []
