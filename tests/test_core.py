@@ -18,6 +18,7 @@ from ai_orchestrate.core import (
     CodexUsage,
     Decision,
     OrchestratorError,
+    _codex_command,
     _codex_env,
     ensure_clean_git,
     estimate_prompt_tokens,
@@ -33,6 +34,72 @@ from ai_orchestrate.core import (
 )
 from ai_orchestrate.cli import _run
 from ai_orchestrate.usage import append_usage, read_usage_entries, tokens_for_date
+
+
+class CodexCommandResolutionTests(unittest.TestCase):
+    def test_resolves_codex_to_absolute_path(self):
+        with patch("ai_orchestrate.core.shutil.which", return_value="/usr/local/bin/codex") as which:
+            self.assertEqual(_codex_command(), ["/usr/local/bin/codex"])
+        which.assert_called_once_with("codex")
+
+    def test_missing_codex_cli_is_reported_before_launch(self):
+        with patch("ai_orchestrate.core.shutil.which", return_value=None):
+            with self.assertRaisesRegex(OrchestratorError, "Codex CLI was not found on PATH"):
+                _codex_command()
+
+    def test_windows_cmd_shim_is_launched_through_comspec(self):
+        with patch("ai_orchestrate.core.os.name", "nt"), \
+             patch.dict(os.environ, {"COMSPEC": r"C:\Windows\System32\cmd.exe"}), \
+             patch("ai_orchestrate.core.shutil.which", return_value=r"C:\Users\test\npm\codex.cmd"):
+            self.assertEqual(
+                _codex_command(),
+                [r"C:\Windows\System32\cmd.exe", "/d", "/s", "/c", r"C:\Users\test\npm\codex.cmd"],
+            )
+
+    def test_windows_executable_is_launched_directly(self):
+        executable = r"C:\Program Files\Codex\codex.exe"
+        with patch("ai_orchestrate.core.os.name", "nt"), \
+             patch("ai_orchestrate.core.shutil.which", return_value=executable):
+            self.assertEqual(_codex_command(), [executable])
+
+    def test_resolved_path_is_used_by_popen(self):
+        class FakeInput:
+            closed = False
+
+            def write(self, value):
+                pass
+            def flush(self):
+                pass
+            def close(self):
+                self.closed = True
+
+        class FakeProcess:
+            pid = 12345
+            returncode = 0
+            stdin = FakeInput()
+            stdout = StringIO("")
+            stderr = StringIO("")
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def poll(self):
+                return self.returncode
+
+        process = FakeProcess()
+        with patch("ai_orchestrate.core.shutil.which", return_value="/opt/codex/bin/codex"), \
+             patch("ai_orchestrate.core.subprocess.Popen", return_value=process) as popen:
+            run_codex(Path("."), "task", "model", "low")
+        self.assertEqual(popen.call_args.args[0][0], "/opt/codex/bin/codex")
+
+    def test_launch_error_names_the_resolved_executable(self):
+        executable = "/opt/codex/bin/codex"
+        with patch("ai_orchestrate.core.shutil.which", return_value=executable), \
+             patch("ai_orchestrate.core.subprocess.Popen", side_effect=FileNotFoundError):
+            with self.assertRaises(OrchestratorError) as raised:
+                run_codex(Path("."), "task", "model", "low")
+        self.assertIn(executable, str(raised.exception))
+        self.assertIn("FileNotFoundError", str(raised.exception))
 
 
 class CoreTests(unittest.TestCase):
@@ -139,7 +206,8 @@ class CoreTests(unittest.TestCase):
             captured["command"] = command
             return SimpleNamespace(returncode=0, stdout=stream, stderr="")
 
-        result = run_codex(Path("."), "do work", "gpt-6-luna", "low", runner=runner)
+        with patch("ai_orchestrate.core.shutil.which", return_value="/usr/bin/codex"):
+            result = run_codex(Path("."), "do work", "gpt-6-luna", "low", runner=runner)
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.usage.total_tokens, 12)
         self.assertEqual(result.final_message, "done")
@@ -181,7 +249,8 @@ class CoreTests(unittest.TestCase):
 
         process = FakeProcess()
         events = []
-        with patch("ai_orchestrate.core.subprocess.Popen", return_value=process) as popen:
+        with patch("ai_orchestrate.core.shutil.which", return_value="/usr/bin/codex"), \
+             patch("ai_orchestrate.core.subprocess.Popen", return_value=process) as popen:
             result = run_codex(Path("."), "task", "model", "low", timeout=15, on_event=events.append)
         self.assertEqual(result.usage.total_tokens, 12)
         self.assertEqual(process.stdin.value, "task")
@@ -262,15 +331,16 @@ sleep 30
             commands.append(command)
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        run_codex(Path("."), "review", "review-model", "low", sandbox="read-only", runner=runner)
-        self.assertIn("read-only", commands[0])
-        with self.assertRaises(OrchestratorError):
-            run_codex(Path("."), "review", "review-model", "low", sandbox="danger-full-access", runner=runner)
+        with patch("ai_orchestrate.core.shutil.which", return_value="/usr/bin/codex"):
+            run_codex(Path("."), "review", "review-model", "low", sandbox="read-only", runner=runner)
+            self.assertIn("read-only", commands[0])
+            with self.assertRaises(OrchestratorError):
+                run_codex(Path("."), "review", "review-model", "low", sandbox="danger-full-access", runner=runner)
 
-        def timed_out(*args, **kwargs):
-            raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
+            def timed_out(*args, **kwargs):
+                raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
 
-        result = run_codex(Path("."), "task", "model", "low", timeout=3, runner=timed_out)
+            result = run_codex(Path("."), "task", "model", "low", timeout=3, runner=timed_out)
         self.assertEqual(result.returncode, 124)
 
     def test_clean_git_gate_includes_untracked(self):
