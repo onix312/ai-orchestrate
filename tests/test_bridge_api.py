@@ -12,6 +12,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 from ai_orchestrate.gitops import create_worktree
 from ai_orchestrate.settings import default_settings
@@ -93,6 +94,14 @@ class ApiEndpointTests(unittest.TestCase):
         self.assertFalse(cleared["changed"]["available"])
         self.assertFalse(stored.exists())
 
+    def test_bridge_budget_stop_is_a_json_error_not_a_disconnected_request(self):
+        from ai_orchestrate.workflow import WorkflowStopped
+        with patch.object(self.manager, "bridge_apply", side_effect=WorkflowStopped("budget exhausted")):
+            with self.assertRaises(HTTPError) as caught:
+                self._post("/api/bridge/apply", {"run": "id", "answer": "text"})
+        self.assertEqual(caught.exception.code, 400)
+        self.assertEqual(json.loads(caught.exception.read())["error"], "budget exhausted")
+
     def test_unknown_provider_is_rejected(self):
         with self.assertRaises(Exception):
             self._post("/api/keys/chatgpt-app", {"key": "whatever-1234"})
@@ -132,7 +141,7 @@ class BridgeRoundTripTests(unittest.TestCase):
 
     def _job_with_worktree(self) -> RunJob:
         settings = default_settings()
-        settings.update({"default_checks": CHECK, "merge_target": "local", "merge_policy": "confirm"})
+        settings.update({"mode": "quick", "default_checks": CHECK, "merge_target": "local", "merge_policy": "confirm"})
         submission = RunSubmission(self.repo, "Округлять сумму до двух знаков", [CHECK], settings)
         job = RunJob(id="bridge0001", submission=submission)
         worktree = create_worktree(self.repo, self.root / "worktrees", job_id=job.id,
@@ -141,6 +150,7 @@ class BridgeRoundTripTests(unittest.TestCase):
         job.worktree = worktree
         job.status = "incomplete"
         self.manager._jobs[job.id] = job
+        self.manager._bridge_checks(job)
         return job
 
     def test_prompt_contains_the_failing_test_and_apply_makes_checks_pass(self):

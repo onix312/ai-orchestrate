@@ -97,6 +97,28 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(result_summary["model_calls"], 1)
             codex.assert_called_once()
 
+    def test_incomplete_result_explains_executor_and_check_failures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = self._git_repo(root / "project")
+            request = WorkflowRequest(repo=repo, task="Fix typo", checks=["pytest -q"],
+                                      mode="quick", max_repairs=0)
+            events = []
+            failed = CodexResult(1, CodexUsage(30, 0, 5), "", stderr="Model unavailable")
+            with patch("ai_orchestrate.workflow.shutil.which", side_effect=self._which), \
+                 patch("ai_orchestrate.workflow.route_with_lane", return_value=("SMALL", LANES["SMALL"])), \
+                 patch("ai_orchestrate.workflow.run_codex", return_value=failed), \
+                 patch("ai_orchestrate.workflow.run_checks", return_value=[
+                     {"command": "pytest -q", "returncode": 1, "output": "AssertionError"}]):
+                result = run_workflow(request, emit=events.append, cancel_event=Event(),
+                                      usage_path=root / "usage.jsonl")
+            self.assertEqual(result["status"], "incomplete")
+            self.assertIn("Model unavailable", result["failure_reason"])
+            self.assertIn("AssertionError", result["failure_reason"])
+            self.assertIn(result["failure_reason"], events[-1]["message"])
+            completed = next(e for e in events if e["event"] == "model.completed")
+            self.assertEqual(completed["data"]["stderr"], "Model unavailable")
+
     def test_ui_workspace_rejects_paths_outside_configured_root(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:
             manager = RunManager(Path(tmp))

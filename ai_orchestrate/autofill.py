@@ -19,10 +19,12 @@ from .workflow import suggest_checks
 _GITHUB_REMOTE_RE = re.compile(r"github\.com[:/]([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)")
 
 
-def detect_base_branch(repo: Path) -> str:
+def detect_base_branch(repo: Path, *, local: bool = False) -> str:
     """Prefer the remote HEAD, then the checked-out branch."""
-    for args in (["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
-                 ["rev-parse", "--abbrev-ref", "HEAD"]):
+    commands = [["rev-parse", "--abbrev-ref", "HEAD"]]
+    if not local:
+        commands.insert(0, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"])
+    for args in commands:
         try:
             result = git(repo, args, check=False, timeout=10)
         except OrchestratorError:
@@ -81,7 +83,7 @@ def autofill(
     else:
         keep("default_checks", "Автопроверки", "\n".join(checks), "уже заданы вручную")
 
-    base_branch = detect_base_branch(repo)
+    base_branch = detect_base_branch(repo, local=settings.get("merge_target") == "local")
     if base_branch:
         apply("base_branch", "Базовая ветка", base_branch, "определена из origin/HEAD или текущей ветки")
     else:

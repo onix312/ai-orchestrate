@@ -368,11 +368,18 @@ def environment_report(*, include_auth: bool = True, path_added: list[str] | Non
     jev = secrets.jev_key_status()
 
     api_keys = secrets.all_key_status()
-    remote_endpoint = not any(token in (api_base_url or "").lower()
-                              for token in ("127.0.0.1", "localhost", "0.0.0.0", "[::1]"))
-    api_key_provider = "openrouter" if "openrouter.ai" in (api_base_url or "").lower() else "openai"
-
+    from .endpoints import endpoint_provider
     problems: list[dict[str, Any]] = []
+    try:
+        api_key_provider = endpoint_provider(api_base_url)
+    except OrchestratorError as exc:
+        api_key_provider = None
+        if api_mode:
+            problems.append({"id": "api.endpoint", "tool": "api", "severity": "blocker",
+                             "title": "Некорректный API-адрес", "detail": str(exc),
+                             "fix": "Исправь API-адрес в настройках.", "can_install": False})
+    remote_endpoint = api_key_provider is not None
+
     if not tools["codex"]["found"]:
         problems.append({
             "id": "codex.missing", "tool": "codex", "severity": "optional" if api_mode else "blocker",
