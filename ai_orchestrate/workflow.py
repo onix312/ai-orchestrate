@@ -4,7 +4,7 @@ import json
 import shutil
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from threading import Event
 from typing import Any, Callable
@@ -25,7 +25,9 @@ from .core import (
     split_command,
     truncate_text,
 )
+from .llm_api import ApiConfig, run_llm_api
 from .prompts import PROFESSIONS, build_developer_prompt, build_planning_prompt, build_reviewer_prompt
+from .secrets import active_key
 from .usage import append_usage, tokens_for_date
 
 
@@ -49,6 +51,10 @@ class WorkflowRequest:
     codex_timeout: int = 1800
     check_timeout: int = 300
     allow_dirty: bool = False
+    executor: str = "codex"
+    api_model: str = ""
+    api_base_url: str = ""
+    api_max_rounds: int = 12
 
 
 class WorkflowStopped(Exception):
@@ -64,6 +70,39 @@ def _emit(callback: Callable[..., None], event: str, stage: str, message: str,
         "message": message,
         "data": data or {},
     })
+
+
+def _api_provider_id(base_url: str) -> str:
+    """Pick the stored key that matches the endpoint the request will hit."""
+    return "openrouter" if "openrouter.ai" in base_url.lower() else "openai"
+
+
+def _api_config(request: WorkflowRequest) -> ApiConfig:
+    base_url = request.api_base_url.strip() or "https://api.openai.com/v1"
+    return ApiConfig(
+        base_url=base_url,
+        api_key=active_key(_api_provider_id(base_url)),
+        model=request.api_model.strip(),
+        timeout=request.codex_timeout,
+        max_rounds=request.api_max_rounds,
+    )
+
+
+def _api_key_or_local(base_url: str) -> bool:
+    """A keyless endpoint is allowed for localhost (Ollama, LM Studio) and nothing else."""
+    host = (base_url.strip() or "https://api.openai.com/v1").lower()
+    if any(token in host for token in ("127.0.0.1", "localhost", "0.0.0.0", "[::1]")):
+        return True
+    return bool(active_key(_api_provider_id(host)))
+
+
+def _prepare_request(request: WorkflowRequest) -> WorkflowRequest:
+    """The API executor talks to exactly one model, so the lane router must not invent names."""
+    if request.executor != "api" or not request.api_model.strip():
+        return request
+    model = request.api_model.strip()
+    return replace(request, luna_model=model, sol_model=model,
+                   review_model=request.review_model.strip() or model)
 
 
 def _validate_request(request: WorkflowRequest) -> tuple[Path, list[str]]:
@@ -93,7 +132,19 @@ def _validate_request(request: WorkflowRequest) -> tuple[Path, list[str]]:
     if min(request.prompt_token_budget, request.max_run_tokens, request.daily_token_budget,
            request.codex_timeout, request.check_timeout) < 1:
         raise OrchestratorError("Лимиты и таймауты должны быть положительными.")
-    if not shutil.which("codex"):
+    if request.executor not in {"codex", "api"}:
+        raise OrchestratorError("Исполнитель должен быть codex или api.")
+    if request.executor == "api":
+        if not request.api_model.strip():
+            raise OrchestratorError("Для API-исполнителя укажи имя модели (например gpt-5.1 или llama3.1).")
+        if not 1 <= request.api_max_rounds <= 40:
+            raise OrchestratorError("Число раундов API-исполнителя должно быть от 1 до 40.")
+        if not _api_key_or_local(request.api_base_url):
+            raise OrchestratorError(
+                "Нет ключа API. Сохрани ключ OpenAI/OpenRouter в разделе «Ключи», "
+                "или укажи локальный сервер без ключа (Ollama: http://127.0.0.1:11434/v1)."
+            )
+    elif not shutil.which("codex"):
         raise OrchestratorError("Codex CLI не найден в PATH. Установи его и выполни codex login.")
 
     try:
@@ -207,6 +258,7 @@ def run_workflow(
 ) -> dict[str, Any]:
     """Run the full bounded planner → coder → checks → reviewer → repair cycle."""
     started = time.monotonic()
+    request = _prepare_request(request)
     _emit(emit, "stage.started", "preflight", "Проверяю проект, Git и команды тестирования.")
     repo, checks = _validate_request(request)
     if cancel_event.is_set():
@@ -295,10 +347,19 @@ def run_workflow(
                 event_name, message, data = formatted
                 _emit(emit, event_name, stage, message, role=role, data=data)
 
-        result = run_codex(
-            repo, prompt, call_model, call_effort, timeout=request.codex_timeout,
-            sandbox=sandbox, on_event=on_codex_event, cancel_event=cancel_event,
-        )
+        if request.executor == "api":
+            config = _api_config(request)
+            result = run_llm_api(
+                repo, prompt, call_model, config=config, sandbox=sandbox,
+                on_event=on_codex_event, cancel_event=cancel_event,
+                token_budget=max(request.max_run_tokens - run_tokens, 0),
+                command_timeout=request.check_timeout,
+            )
+        else:
+            result = run_codex(
+                repo, prompt, call_model, call_effort, timeout=request.codex_timeout,
+                sandbox=sandbox, on_event=on_codex_event, cancel_event=cancel_event,
+            )
         elapsed = round(time.monotonic() - call_started, 2)
         total = result.usage.total_tokens
         usage_known &= total is not None

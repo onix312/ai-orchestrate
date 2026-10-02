@@ -179,8 +179,8 @@ class AutomationTests(unittest.TestCase):
             repo = self._repo(root / "project")
             manager = RunManager(root, settings_path=root / "settings.json")
             settings = self._settings(root, repo, router="jev")
-            with patch.dict("os.environ", {}, clear=True):
-                with self.assertRaisesRegex(OrchestratorError, "Триаж Jev требует TYPESAFE_API_KEY"):
+            with patch.dict("os.environ", {"AI_ORCHESTRATE_JEV_KEY_FILE": str(root / "missing-key")}, clear=True):
+                with self.assertRaisesRegex(OrchestratorError, "Триаж Jev требует API-ключ"):
                     manager.start({"repo": str(repo), "task": "task", "settings": settings})
             self.assertIsNone(manager._active_job)
             self.assertFalse((root / "worktrees").exists())
@@ -191,8 +191,8 @@ class AutomationTests(unittest.TestCase):
             repo = self._repo(root / "project")
             manager = RunManager(root, usage_path=root / "usage.jsonl", settings_path=root / "settings.json")
             settings = self._settings(root, repo, mode="full", merge_policy="jev_auto")
-            with patch.dict("os.environ", {}, clear=True):
-                with self.assertRaisesRegex(OrchestratorError, "требует TYPESAFE_API_KEY"):
+            with patch.dict("os.environ", {"AI_ORCHESTRATE_JEV_KEY_FILE": str(root / "missing-key")}, clear=True):
+                with self.assertRaisesRegex(OrchestratorError, "Автослияние после Jev требует API-ключ"):
                     manager.start({"repo": str(repo), "task": "task", "settings": settings})
 
     def test_failed_checks_never_offer_merge_confirmation(self):

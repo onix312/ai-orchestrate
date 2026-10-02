@@ -104,6 +104,52 @@
     .cancel { width:100%; border:1px solid #613a42; border-radius:10px; padding:10px; color:#ffb2b7; background:rgba(96,34,43,.19); margin-top:8px; display:none; }
     .footnote { color:#758493; font-size:10px; margin:10px 2px 0; line-height:1.45; }
 
+    /* --- readiness / access panel --- */
+    .block { margin-top:14px; border:1px solid #2a3948; border-radius:13px; background:rgba(9,15,22,.42); }
+    .block-head { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:11px 12px 0; }
+    .block-head h2 { font-size:12px; letter-spacing:-.2px; }
+    .block-body { padding:9px 12px 12px; }
+    .ready-item { display:grid; grid-template-columns:16px minmax(0,1fr); gap:8px; padding:9px 0; border-top:1px solid #1e2a36; }
+    .ready-item:first-child { border-top:0; }
+    .ready-led { width:9px; height:9px; margin-top:4px; border-radius:50%; background:#4b5d6d; }
+    .ready-item.ok .ready-led { background:var(--accent); box-shadow:0 0 0 3px rgba(131,240,193,.12); }
+    .ready-item.warn .ready-led { background:var(--amber); box-shadow:0 0 0 3px rgba(244,199,121,.12); }
+    .ready-item.bad .ready-led { background:var(--red); box-shadow:0 0 0 3px rgba(255,138,145,.12); }
+    .ready-title { font-size:11px; font-weight:700; color:#dce6ee; }
+    .ready-detail { color:#8fa1af; font-size:10px; line-height:1.45; margin-top:2px; }
+    .ready-fix { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:6px; }
+    .ready-cmd { flex:1 1 150px; min-width:0; font:10px/1.5 ui-monospace,monospace; color:#a9efd0; background:#0c1620; border:1px solid #2b3d4a; border-radius:7px; padding:5px 7px; overflow-wrap:anywhere; }
+    .ready-log { margin-top:6px; max-height:150px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font:9px/1.5 ui-monospace,monospace; color:#93a6b4; background:#0a1219; border:1px solid #24323e; border-radius:7px; padding:6px 7px; }
+    .mini-button { border:1px solid #385148; border-radius:8px; padding:6px 9px; color:#a9efd0; background:rgba(66,125,103,.13); font-size:10px; font-weight:700; white-space:nowrap; }
+    .mini-button:hover { filter:brightness(1.15); }
+    .mini-button:disabled { opacity:.5; cursor:progress; }
+    .mini-button.ghost { border-color:#33455a; color:#c3d2df; background:rgba(28,41,54,.6); }
+    .keycard { margin-top:14px; border:1px solid #3a4c60; border-radius:13px; background:linear-gradient(160deg,rgba(30,44,60,.7),rgba(12,19,27,.8)); padding:12px; }
+    .key-row { display:flex; gap:7px; }
+    .key-row input { min-width:0; font:12px/1.4 ui-monospace,monospace; letter-spacing:.4px; }
+    .key-actions { margin-top:9px; }
+    .key-actions button { border:1px solid #385148; border-radius:9px; padding:8px 11px; color:#a9efd0; background:rgba(66,125,103,.13); font-size:10px; font-weight:700; }
+    .key-actions button.danger { border-color:#714149; color:#ffc2c5; background:#321e24; }
+    .key-state { display:block; margin-top:7px; font-size:10px; color:#8fa1af; overflow-wrap:anywhere; }
+    .group-head { display:flex; align-items:center; gap:8px; margin:16px 0 2px; }
+    .group-num { flex:0 0 18px; height:18px; display:grid; place-items:center; border-radius:6px; background:rgba(131,240,193,.12); border:1px solid rgba(131,240,193,.28); color:#9feaca; font:10px/1 ui-monospace,monospace; font-weight:700; }
+    .group-head h3 { font-size:12px; color:#e2ebf2; }
+    .group-head span.group-note { color:#7d8d9c; font-size:10px; margin-left:auto; text-align:right; }
+    .project-list { display:grid; gap:6px; margin-top:8px; max-height:250px; overflow:auto; }
+    .project-item { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:center; border:1px solid #26343f; border-radius:10px; padding:8px 9px; background:#0d151d; cursor:pointer; text-align:left; color:inherit; }
+    .project-item:hover { border-color:#4d6a7d; }
+    .project-item[disabled] { opacity:.55; cursor:not-allowed; }
+    .project-item strong { display:block; font-size:11px; color:#dbe5ee; overflow-wrap:anywhere; }
+    .project-item span { display:block; margin-top:2px; font:9px/1.45 ui-monospace,monospace; color:#8293a1; overflow-wrap:anywhere; }
+    .badge { border:1px solid #33454f; border-radius:6px; padding:2px 6px; font-size:9px; color:#a9c4d4; white-space:nowrap; }
+    .badge.codex { border-color:#3d6a58; color:#9feaca; background:rgba(131,240,193,.07); }
+    .badge.off { border-color:#6a4a3d; color:#f0c0a9; }
+    .settings-actions { display:flex; flex-wrap:wrap; gap:7px; margin-top:12px; }
+    .autofill-report { margin-top:8px; font-size:10px; line-height:1.5; color:#93a6b4; }
+    .autofill-report b { color:#cfe6da; font-weight:650; }
+    .pill.clickable { cursor:pointer; }
+    .pill.clickable:hover { border-color:#60778d; }
+
     .right { min-width:0; }
     .hero { padding:21px 23px; display:flex; justify-content:space-between; gap:20px; align-items:center; overflow:hidden; position:relative; }
     .hero:after { content:""; position:absolute; width:220px; height:220px; right:-48px; top:-105px; border:1px solid rgba(131,240,193,.09); border-radius:50%; box-shadow:0 0 0 28px rgba(131,240,193,.025),0 0 0 58px rgba(131,240,193,.018); pointer-events:none; }
@@ -263,12 +309,65 @@
           <div><h1>Новая задача</h1><div class="muted tiny">Опиши результат обычными словами — роли и проверки соберём вокруг него.</div></div>
           <span class="mode-tag">LOCAL FIRST</span>
         </div>
-        <form id="runForm">
-          <div class="field">
-            <label for="repo">Папка проекта <span class="field-hint" id="rootHint"></span></label>
-            <div class="repo-row"><input id="repo" type="text" required placeholder="Путь к Git-репозиторию"><button class="icon-button" type="button" id="checkRepo" title="Найти проверки">↻</button></div>
+
+        <section class="block" id="readinessPanel" aria-live="polite">
+          <div class="block-head">
+            <div><h2>Готовность и доступ</h2><div class="muted tiny" id="readinessSummary">Проверяю Codex CLI, Git, gh и ключ Jev…</div></div>
+            <button class="mini-button ghost" type="button" id="refreshEnvironment">↻ Перепроверить</button>
           </div>
-          <div class="field">
+          <div class="block-body"><div id="readinessList"><div class="muted tiny">Загружаю состояние окружения…</div></div></div>
+        </section>
+
+        <section class="keycard" id="jevKeyPanel">
+          <div class="label-row"><label for="jevKey" style="margin:0">Ключ Jev · TYPESAFE_API_KEY</label><span class="field-hint" id="jevKeySource">проверяю…</span></div>
+          <div class="key-row">
+            <input id="jevKey" type="password" autocomplete="off" spellcheck="false" placeholder="Вставь ключ Jev, например tsk_…">
+            <button class="icon-button" type="button" id="toggleJevKey" title="Показать или скрыть ключ">👁</button>
+          </div>
+          <div class="action-row key-actions">
+            <button type="button" id="saveJevKey">Сохранить ключ</button>
+            <button type="button" class="danger" id="clearJevKey">Удалить ключ</button>
+          </div>
+          <span class="key-state" id="jevKeyHint">Ключ нужен только для Jev-триажа и автослияния после APPROVE. Без него работают бесплатный локальный триаж и слияние по кнопке.</span>
+        </section>
+
+        <section class="keycard" id="apiKeysPanel">
+          <div class="label-row"><label for="openaiKey" style="margin:0">Ключи API · OpenAI и OpenRouter</label><span class="field-hint" id="apiKeysSource">проверяю…</span></div>
+          <div class="key-row">
+            <input id="openaiKey" type="password" autocomplete="off" spellcheck="false" placeholder="OPENAI_API_KEY, например sk-…">
+            <button class="icon-button" type="button" data-toggle-key="openaiKey" title="Показать или скрыть ключ">👁</button>
+          </div>
+          <div class="action-row key-actions">
+            <button type="button" id="saveOpenaiKey">Сохранить OpenAI</button>
+            <button type="button" class="danger" id="clearOpenaiKey">Удалить</button>
+          </div>
+          <div class="key-row" style="margin-top:8px">
+            <input id="openrouterKey" type="password" autocomplete="off" spellcheck="false" placeholder="OPENROUTER_API_KEY, например sk-or-…">
+            <button class="icon-button" type="button" data-toggle-key="openrouterKey" title="Показать или скрыть ключ">👁</button>
+          </div>
+          <div class="action-row key-actions">
+            <button type="button" id="saveOpenrouterKey">Сохранить OpenRouter</button>
+            <button type="button" class="danger" id="clearOpenrouterKey">Удалить</button>
+          </div>
+          <span class="key-state" id="apiKeysHint">Ключи хранятся в отдельных файлах с правами 0600 и не попадают в settings.json. Для локальных Ollama и LM Studio ключ не нужен.</span>
+        </section>
+
+        <form id="runForm">
+          <div class="group-head"><span class="group-num">1</span><h3>Проект</h3><span class="group-note" id="rootHint"></span></div>
+          <div class="field" style="margin-top:8px">
+            <div class="label-row"><label for="repo" style="margin:0">Папка проекта</label><span class="field-hint">репозиторий с Git</span></div>
+            <div class="repo-row">
+              <input id="repo" type="text" required list="projectOptions" placeholder="Путь к Git-репозиторию">
+              <button class="icon-button" type="button" id="checkRepo" title="Найти проверки в проекте">↻</button>
+              <button class="icon-button" type="button" id="toggleProjects" title="Показать проекты, которые уже видел Codex">▾</button>
+            </div>
+            <datalist id="projectOptions"></datalist>
+            <div class="project-list" id="projectList" hidden></div>
+            <div class="field-hint" style="margin-top:5px" id="projectHint">Список проектов берётся из истории сессий Codex, из журнала панели и из рабочей области.</div>
+          </div>
+
+          <div class="group-head"><span class="group-num">2</span><h3>Задача</h3><span class="group-note">что именно сделать</span></div>
+          <div class="field" style="margin-top:8px">
             <label for="task">Что нужно сделать?</label>
             <textarea id="task" maxlength="48000" placeholder="Например: Добавь страницу настроек с тёмной темой, сохранением выбора и тестами. Сначала посмотри, как устроен проект."></textarea>
             <div class="field-hint" style="margin-top:5px">Пиши как человеку. Не вставляй ключи, пароли и приватные данные. Можно оставить пустым, если ниже указан GitHub issue/PR.</div>
@@ -281,9 +380,11 @@
           <div class="field">
             <div class="label-row"><label for="checks" style="margin:0">Автопроверки <span class="field-hint">по одной команде на строку</span></label><button class="subtle" type="button" id="suggestChecks" style="border:0;background:none;color:#8de3c1">автонайти</button></div>
             <textarea id="checks" placeholder="pytest -q&#10;npm test&#10;python -m unittest discover -s tests"></textarea>
+            <div class="field-hint" style="margin-top:5px">Без успешных проверок слияние невозможно. Команды выполняются локально и не расходуют токены.</div>
           </div>
-          <div class="field">
-            <div class="label-row"><span>Режим работы</span><span class="field-hint" id="modeCost">до 5 вызовов в полном цикле</span></div>
+
+          <div class="group-head"><span class="group-num">3</span><h3>Как работаем</h3><span class="field-hint" id="modeCost">до 5 вызовов в полном цикле</span></div>
+          <div class="field" style="margin-top:8px">
             <div class="segmented">
               <div class="mode-option active" data-mode="full" tabindex="0"><strong>Полный цикл</strong><span>Аналитик → архитектор → разработчик → тесты → ревью</span><em id="fullCostLabel">3 вызова обычно · до 5 с исправлением</em></div>
               <div class="mode-option" data-mode="quick" tabindex="0"><strong>Бережливый</strong><span>Разработчик → проверки, без планировщика и ревью</span><em id="quickCostLabel">1 вызов модели</em></div>
@@ -291,13 +392,27 @@
             <div class="cost-preview" id="costPreview" aria-live="polite"></div>
           </div>
           <div class="two-col">
-            <div class="field"><label for="profession">Профессия исполнителя</label><select id="profession"></select></div>
-            <div class="field"><label for="lane">Стартовая модель</label><select id="lane"><option value="">Автовыбор</option><option value="SMALL">SMALL · low</option><option value="MEDIUM">MEDIUM · medium</option><option value="HIGH">HIGH · high</option><option value="ESCALATE">ESCALATE · Sol</option></select></div>
+            <div class="field"><label for="profession">Профессия исполнителя <span class="field-hint">роль промпта</span></label><select id="profession"></select></div>
+            <div class="field"><label for="lane">Стартовая модель <span class="field-hint">пусто = авто</span></label><select id="lane"><option value="">Автовыбор</option><option value="SMALL">SMALL · low</option><option value="MEDIUM">MEDIUM · medium</option><option value="HIGH">HIGH · high</option><option value="ESCALATE">ESCALATE · Sol</option></select></div>
           </div>
           <div class="field">
-            <label for="router">Триаж задачи</label>
-            <select id="router"><option value="local">Локально · бесплатно</option><option value="jev" id="jevOption">Jev · внешний вызов</option></select>
-            <div class="field-hint" style="margin-top:5px">Jev получает текст задачи для выбора уровня. Решение и уверенность будут видны справа.</div>
+            <label for="router">Триаж задачи <span class="field-hint">кто выбирает модель</span></label>
+            <select id="router"><option value="local">Локально · бесплатно</option><option value="jev" id="jevOption">Jev · внешний вызов (нужен ключ)</option></select>
+            <div class="field-hint" style="margin-top:5px">Локальный триаж бесплатный. Jev получает текст задачи и возвращает уровень модели с уверенностью — для него нужен ключ выше.</div>
+          </div>
+          <div class="field">
+            <label for="executor">Исполнитель <span class="field-hint">кто правит файлы</span></label>
+            <select id="executor"><option value="codex">Codex CLI · вход через codex login</option><option value="api">OpenAI-совместимый API · OpenAI, OpenRouter, Ollama, LM Studio</option></select>
+            <div class="field-hint" style="margin-top:5px">Codex CLI работает по подписке Codex/ChatGPT через <code>codex login</code>. API-исполнитель не требует Codex: нужен только ключ или локальный сервер.</div>
+          </div>
+          <div class="field" id="apiFields" hidden>
+            <label for="apiModel">Модель API <span class="field-hint">имя модели на выбранном сервере</span></label>
+            <input id="apiModel" type="text" maxlength="120" placeholder="gpt-5.1 · qwen2.5-coder:7b · llama3.1">
+            <div class="two-col" style="margin-top:8px">
+              <div class="field"><label for="apiBaseUrl">Адрес API <span class="field-hint">пусто = api.openai.com/v1</span></label><input id="apiBaseUrl" type="text" maxlength="2048" placeholder="http://127.0.0.1:11434/v1"></div>
+              <div class="field"><label for="apiMaxRounds">Раундов инструмента на этап <span class="field-hint">1–40</span></label><input id="apiMaxRounds" type="number" min="1" max="40" value="12"></div>
+            </div>
+            <div class="field-hint">Ollama: <code>http://127.0.0.1:11434/v1</code>, LM Studio: <code>http://127.0.0.1:1234/v1</code> — ключ не нужен. Для api.openai.com и openrouter.ai ключ обязателен.</div>
           </div>
           <details class="limits">
             <summary>Библиотека готовых промптов ролей</summary>
@@ -307,27 +422,29 @@
               <div class="footnote">Шаблоны используются оркестратором автоматически. В полном цикле роли аналитика, архитектора и ревьюера выполняются отдельными этапами.</div>
             </div>
           </details>
-          <details class="limits">
-            <summary>Бюджет, модели и таймауты</summary>
+
+          <div class="group-head"><span class="group-num">4</span><h3>Бюджет, модели, таймауты</h3><span class="group-note">лимиты токенов</span></div>
+          <details class="limits" style="margin-top:8px">
+            <summary>Открыть тонкие настройки расхода</summary>
             <div class="limits-inner">
               <div class="two-col">
-                <div class="field"><label for="repairs">Автоисправления</label><input id="repairs" type="number" min="0" max="3" value="1"></div>
-                <div class="field"><label for="maxCalls">Макс. вызовов</label><input id="maxCalls" type="number" min="1" max="10" value="5"></div>
+                <div class="field"><label for="repairs">Автоисправления <span class="field-hint">0–3</span></label><input id="repairs" type="number" min="0" max="3" value="1"></div>
+                <div class="field"><label for="maxCalls">Максимум вызовов <span class="field-hint">жёсткий потолок</span></label><input id="maxCalls" type="number" min="1" max="10" value="5"></div>
               </div>
               <div class="two-col">
-                <div class="field"><label for="runBudget">Токены / задача</label><input id="runBudget" type="number" min="100" step="1000" value="60000"></div>
-                <div class="field"><label for="dayBudget">Токены / день</label><input id="dayBudget" type="number" min="100" step="1000" value="120000"></div>
+                <div class="field"><label for="runBudget">Токенов на задачу</label><input id="runBudget" type="number" min="100" step="1000" value="60000"></div>
+                <div class="field"><label for="dayBudget">Токенов в день</label><input id="dayBudget" type="number" min="100" step="1000" value="120000"></div>
               </div>
               <div class="footnote" id="dailyUsage">Загружаю учтённое использование за сегодня…</div>
-              <div class="field"><label for="promptBudget">Текст промптов · оценка</label><input id="promptBudget" type="number" min="100" step="1000" value="16000"></div>
+              <div class="field"><label for="promptBudget">Текст промптов · оценка <span class="field-hint">до отправки</span></label><input id="promptBudget" type="number" min="100" step="1000" value="16000"></div>
               <div class="two-col">
                 <div class="field"><label for="codexTimeout">Таймаут Codex · сек</label><input id="codexTimeout" type="number" min="10" max="7200" step="60" value="1800"></div>
                 <div class="field"><label for="checkTimeout">Таймаут проверки · сек</label><input id="checkTimeout" type="number" min="1" max="3600" step="30" value="300"></div>
               </div>
-              <div class="field"><label for="lunaModel">Модель Luna / обычные полосы</label><input id="lunaModel" type="text" maxlength="120" value="gpt-6-luna"></div>
+              <div class="field"><label for="lunaModel">Модель Luna <span class="field-hint">полосы SMALL–HIGH</span></label><input id="lunaModel" type="text" maxlength="120" value="gpt-6-luna"></div>
               <div class="two-col">
-                <div class="field"><label for="solModel">Модель Sol / эскалация</label><input id="solModel" type="text" maxlength="120" value="gpt-6-sol"></div>
-                <div class="field"><label for="reviewModel">Модель ревьюера <span class="field-hint">пусто = альтернативная</span></label><input id="reviewModel" type="text" maxlength="120" placeholder="автовыбор"></div>
+                <div class="field"><label for="solModel">Модель Sol <span class="field-hint">эскалация</span></label><input id="solModel" type="text" maxlength="120" value="gpt-6-sol"></div>
+                <div class="field"><label for="reviewModel">Модель ревьюера <span class="field-hint">пусто = другая</span></label><input id="reviewModel" type="text" maxlength="120" placeholder="автовыбор"></div>
               </div>
               <label class="toggle-row"><input id="saveJournal" type="checkbox" checked> Сохранять краткий журнал запусков</label>
               <div class="two-col">
@@ -337,11 +454,14 @@
               <div class="footnote">Фактический исполнитель — Codex CLI. Он использует авторизацию Codex, в том числе вход через ChatGPT, если он подключён в CLI. Прямое управление окном ChatGPT и автоматизация браузера не используются. Токеновые лимиты не прерывают уже активный ход.</div>
             </div>
           </details>
-          <details class="limits" open>
+
+          <div class="group-head"><span class="group-num">5</span><h3>Ветки и слияние</h3><span class="group-note">что происходит с кодом</span></div>
+          <details class="limits" open style="margin-top:8px">
             <summary>GitHub, ветки и автоматическое слияние</summary>
             <div class="limits-inner">
               <div class="field"><label for="mergePolicy">Когда сливать готовую задачу</label>
                 <select id="mergePolicy"><option value="confirm">После кнопки «Подтвердить слияние»</option><option value="jev_auto" id="jevMergeOption">Автоматически после финального APPROVE от Jev</option></select>
+                <div class="field-hint" style="margin-top:5px">По умолчанию безопасно: модель ничего не сливает сама. Автослияние включает только явный выбор и ключ Jev.</div>
               </div>
               <div class="two-col">
                 <div class="field"><label for="mergeTarget">Куда сливать</label><select id="mergeTarget"><option value="local">Локально · fast-forward в базовую ветку</option><option value="github">GitHub · pull request и merge</option></select></div>
@@ -358,10 +478,16 @@
               <div class="footnote">Codex всегда работает в отдельном worktree. Локальное слияние выполняется только fast-forward и только если исходная ветка не изменилась и checkout чист. Для GitHub используется ваш gh auth; write/push/merge происходит только автоматически после APPROVE Jev или после явной кнопки подтверждения. Jev получает ограниченный diff, сводку задачи, результаты проверок и ревью — не API-ключ.</div>
             </div>
           </details>
+
+          <div class="settings-actions">
+            <button class="secondary-button" type="button" id="autofillSettings">✨ Автонастройка</button>
+            <button class="secondary-button" type="button" id="resetSettings">Сбросить к значениям по умолчанию</button>
+          </div>
+          <div class="autofill-report" id="autofillReport"></div>
           <div class="settings-save-row"><button class="secondary-button" type="button" id="saveSettings">Сохранить настройки</button><span class="settings-state" id="settingsState" role="status">Настройки загружаются…</span></div>
           <button class="primary" type="submit" id="startButton">▶　Запустить полный цикл</button>
           <button class="cancel" type="button" id="cancelButton">■　Отменить задачу</button>
-          <div class="footnote">Настройки сохраняются локально в settings.json. Каждая задача создаёт отдельную ветку и worktree; исходный checkout не редактируется. Слияние никогда не выполняется вручную в терминале этим агентом.</div>
+          <div class="footnote">Настройки сохраняются локально в settings.json, ключ Jev — в отдельном файле с правами 0600. Каждая задача создаёт отдельную ветку и worktree; исходный checkout не редактируется. Слияние никогда не выполняется вручную в терминале этим агентом.</div>
         </form>
       </aside>
 
@@ -474,6 +600,22 @@
             <section class="card panel"><div class="panel-title"><h2>План / критерии</h2><span class="counter">АНАЛИТИК + АРХИТЕКТОР</span></div><div class="plan-body" id="planBody"><span class="plan-empty">В полном цикле появится после этапа планирования.</span></div></section>
             <section class="card panel"><div class="panel-title"><h2>Проверки</h2><span class="counter" id="checkCount">0</span></div><div class="checks-list" id="checksList"><div class="plan-empty">Проверки ещё не запускались.</div></div></section>
             <section class="card panel"><div class="panel-title"><h2>Изменённые файлы</h2><span class="counter" id="fileCount">0</span></div><div class="files-list" id="filesList"><span class="plan-empty">Пока пусто.</span></div></section>
+            <section class="card panel" id="bridgePanel"><div class="panel-title"><h2>Мост ChatGPT</h2><span class="counter">вручную, без автоматизации</span></div>
+              <div class="bridge-body">
+                <span class="plan-empty" id="bridgeHint">Собери промпт после запуска: панель отдаст задачу, diff и падающие проверки. Скопируй текст в приложение ChatGPT, верни ответ сюда — панель применит его в worktree и снова запустит проверки.</span>
+                <div class="action-row key-actions" style="margin-top:8px">
+                  <button type="button" id="bridgePromptButton" disabled>Собрать промпт</button>
+                  <button type="button" id="copyBridgePrompt" disabled>Скопировать</button>
+                </div>
+                <textarea id="bridgePromptText" readonly spellcheck="false" placeholder="Здесь появится текст для ChatGPT."></textarea>
+                <label for="bridgeAnswer" style="margin-top:8px">Ответ ChatGPT <span class="field-hint">блоки ### FILE: или *** Begin Patch</span></label>
+                <textarea id="bridgeAnswer" spellcheck="false" placeholder="Вставь сюда ответ из приложения ChatGPT целиком."></textarea>
+                <div class="action-row key-actions" style="margin-top:8px">
+                  <button type="button" id="bridgeApplyButton" disabled>Применить ответ и проверить</button>
+                </div>
+                <span class="key-state" id="bridgeState">Панель не открывает ChatGPT сама и не читает его cookies: текст переносишь ты.</span>
+              </div>
+            </section>
             <section class="card panel"><div class="panel-title"><h2>Недавняя работа</h2><span class="counter">локальный журнал</span></div><div class="history-list" id="historyList"><span class="plan-empty">Пока нет завершённых запусков.</span></div></section>
           </div>
         </div>
@@ -485,7 +627,7 @@
     const $ = (id) => document.getElementById(id);
     const stepIds = ["preflight", "routing", "planning", "implementation", "testing", "review", "final"];
     const stageOrder = Object.fromEntries(stepIds.map((id, i) => [id, i]));
-    let state = { mode: "full", status: null, jobId: null, lastEvent: 0, calls: 0, maxCalls: 0, tokens: 0, dailyTokens: null, startAt: 0, timer: null, polling: false, files: new Set(), checkMap: new Map(), settingsTimer: null, settingsLoaded: false, settingsSaving: false, githubItem: null, projectContextRepo: "" };
+    let state = { mode: "full", status: null, jobId: null, lastEvent: 0, calls: 0, maxCalls: 0, tokens: 0, dailyTokens: null, startAt: 0, timer: null, polling: false, files: new Set(), checkMap: new Map(), settingsTimer: null, settingsLoaded: false, settingsSaving: false, githubItem: null, projectContextRepo: "", env: null, jevKey: null, projects: null, apiKeys: null };
 
     function toast(message) {
       const node = $("toast"); node.textContent = message; node.classList.add("show");
@@ -784,6 +926,8 @@
         project_context: state.projectContextRepo === $("repo").value.trim() ? $("projectContext").value : undefined,
         mode: state.mode, profession: $("profession").value, router: $("router").value,
         lane: $("lane").value, luna_model: $("lunaModel").value.trim(), sol_model: $("solModel").value.trim(),
+        executor: $("executor").value, api_model: $("apiModel").value.trim(),
+        api_base_url: $("apiBaseUrl").value.trim(), api_max_rounds: Number($("apiMaxRounds").value),
         review_model: $("reviewModel").value.trim(), max_repairs: Number($("repairs").value),
         max_model_calls: Number($("maxCalls").value), prompt_token_budget: Number($("promptBudget").value),
         max_run_tokens: Number($("runBudget").value), daily_token_budget: Number($("dayBudget").value),
@@ -795,6 +939,93 @@
         save_journal: $("saveJournal").checked, usage_log_path: $("usageLogPath").value.trim(),
         journal_path: $("journalPath").value.trim(),
       };
+    }
+    function syncExecutorFields() {
+      const api = $("executor").value === "api";
+      $("apiFields").hidden = !api;
+      $("apiModel").required = api;
+      $("jevOption").disabled = api;
+      if (api && $("router").value === "jev") { $("router").value = "local"; }
+      const mode = $("costPreview");
+      if (mode && api && !$("apiModel").value.trim()) {
+        mode.textContent = "API-исполнитель: укажи имя модели (и ключ или локальный сервер).";
+      }
+    }
+    async function loadApiKeys() {
+      try {
+        const response = await fetch("/api/keys", {cache:"no-store"});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось прочитать ключи");
+        const keys = data.keys || {};
+        ["openai", "openrouter"].forEach(name => {
+          const item = keys[name] || {};
+          const input = $(name === "openai" ? "openaiKey" : "openrouterKey");
+          input.value = "";
+          input.placeholder = item.available ? `Сохранён: ${item.masked}` : input.dataset.empty || input.placeholder;
+          input.dataset.empty = input.dataset.empty || (name === "openai" ? "OPENAI_API_KEY, например sk-…" : "OPENROUTER_API_KEY, например sk-or-…");
+        });
+        const openai = keys.openai || {}, openrouter = keys.openrouter || {};
+        $("apiKeysSource").textContent = [
+          openai.available ? `OpenAI: ${openai.source === "environment" ? "из окружения" : "файл 0600"}` : "OpenAI: нет ключа",
+          openrouter.available ? `OpenRouter: ${openrouter.source === "environment" ? "из окружения" : "файл 0600"}` : "OpenRouter: нет ключа",
+        ].join(" · ");
+        $("apiKeysHint").textContent = openai.available || openrouter.available
+          ? "Ключ хранится в файле с правами 0600 и не попадает в settings.json. Маска показана вместо самого ключа."
+          : "Ключей нет: доступен только локальный сервер (Ollama, LM Studio) или Codex CLI.";
+        state.apiKeys = keys;
+      } catch (error) { $("apiKeysSource").textContent = `Ключи не读: ${error.message}`; }
+    }
+    async function postKey(provider, body) {
+      const response = await fetch(`/api/keys/${encodeURIComponent(provider)}`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Не удалось сохранить ключ");
+      const changed = data.changed || {};
+      toast(changed.note || "Готово");
+      await loadApiKeys();
+    }
+    function syncBridgeButtons() {
+      const job = state.jobId;
+      const usable = Boolean(job) && state.status !== null;
+      $("bridgePromptButton").disabled = !usable;
+      $("bridgeApplyButton").disabled = !usable || !$("bridgeAnswer").value.trim();
+      $("copyBridgePrompt").disabled = !$("bridgePromptText").value;
+    }
+    async function buildBridgePrompt() {
+      if (!state.jobId) return;
+      $("bridgeState").textContent = "Собираю задачу, diff и текущие проверки…";
+      $("bridgePromptButton").disabled = true;
+      try {
+        const response = await fetch("/api/bridge/prompt", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({run: state.jobId})});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось собрать промпт");
+        $("bridgePromptText").value = data.prompt;
+        const failed = (data.failed_checks || []).length;
+        $("bridgeState").textContent = `Промпт готов (${data.chars} символов, падающих проверок: ${failed}). Скопируй его в приложение ChatGPT.`;
+        syncBridgeButtons();
+      } catch (error) { $("bridgeState").textContent = error.message; }
+      finally { syncBridgeButtons(); }
+    }
+    async function applyBridgeAnswer() {
+      if (!state.jobId) return;
+      const answer = $("bridgeAnswer").value;
+      if (!answer.trim()) { toast("Вставь ответ ChatGPT."); return; }
+      $("bridgeState").textContent = "Применяю ответ в изолированном worktree и запускаю проверки…";
+      $("bridgeApplyButton").disabled = true;
+      try {
+        const response = await fetch("/api/bridge/apply", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({run: state.jobId, answer})});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось применить ответ");
+        const report = data.report || {};
+        const applied = (report.applied || []).length, rejected = (report.rejected || []).length;
+        (report.rejected || []).forEach(item => toast(`Отклонено ${item.path}: ${item.error}`));
+        $("bridgeState").textContent = data.checks_passed
+          ? `Файлов применено: ${applied}. Проверки прошли — подтверди слияние.`
+          : `Файлов применено: ${applied}${rejected ? `, отклонено: ${rejected}` : ""}. Проверки не прошли — пришли исправленный ответ.`;
+        $("bridgeAnswer").value = "";
+        loadHistory();
+        await poll();
+      } catch (error) { $("bridgeState").textContent = error.message; }
+      finally { syncBridgeButtons(); }
     }
     function markSettingsDirty() {
       if (!state.settingsLoaded) return;
@@ -834,6 +1065,11 @@
       $("lunaModel").value = s.luna_model || "gpt-6-luna";
       $("solModel").value = s.sol_model || "gpt-6-sol";
       $("reviewModel").value = s.review_model || "";
+      $("executor").value = s.executor || "codex";
+      $("apiModel").value = s.api_model || "";
+      $("apiBaseUrl").value = s.api_base_url || "";
+      $("apiMaxRounds").value = s.api_max_rounds ?? 12;
+      syncExecutorFields();
       $("repairs").value = s.max_repairs ?? 1;
       $("maxCalls").value = s.max_model_calls ?? 5;
       $("promptBudget").value = s.prompt_token_budget ?? 16000;
@@ -858,6 +1094,291 @@
       $("startButton").textContent = state.mode === "full" ? "▶　Запустить полный цикл" : "▶　Запустить бережливый цикл";
       updateCostPreview();
     }
+    function relativeTime(iso) {
+      if (!iso) return "";
+      const then = new Date(iso);
+      if (Number.isNaN(then.getTime())) return "";
+      const minutes = Math.floor((Date.now() - then.getTime()) / 60000);
+      if (minutes < 1) return "только что";
+      if (minutes < 60) return `${minutes} мин назад`;
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return `${hours} ч назад`;
+      const days = Math.floor(hours / 24);
+      return days < 30 ? `${days} дн назад` : then.toLocaleDateString();
+    }
+    function copyCommand(text) {
+      const fallback = () => toast(`Выполни в терминале: ${text}`);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => toast("Команда скопирована — вставь её в терминал."), fallback);
+        return;
+      }
+      fallback();
+    }
+    function readyItem({ kind, title, detail, command, installTool, copyOnly, note }) {
+      const item = document.createElement("div");
+      item.className = `ready-item ${kind}`;
+      const led = document.createElement("span"); led.className = "ready-led";
+      const body = document.createElement("div");
+      const titleNode = document.createElement("div"); titleNode.className = "ready-title"; titleNode.textContent = title;
+      body.append(titleNode);
+      if (detail) { const detailNode = document.createElement("div"); detailNode.className = "ready-detail"; detailNode.textContent = detail; body.append(detailNode); }
+      if (command) {
+        const row = document.createElement("div"); row.className = "ready-fix";
+        const code = document.createElement("code"); code.className = "ready-cmd"; code.textContent = `$ ${command}`;
+        row.append(code);
+        if (installTool) {
+          const button = document.createElement("button");
+          button.type = "button"; button.className = "mini-button"; button.dataset.install = installTool;
+          button.textContent = `Установить ${installTool}`;
+          row.append(button);
+        }
+        const copy = document.createElement("button");
+        copy.type = "button"; copy.className = "mini-button ghost"; copy.textContent = copyOnly ? "Скопировать и выполнить в терминале" : "Скопировать";
+        copy.addEventListener("click", () => copyCommand(command));
+        row.append(copy);
+        body.append(row);
+      }
+      if (note) { const noteNode = document.createElement("div"); noteNode.className = "ready-detail"; noteNode.textContent = note; body.append(noteNode); }
+      const log = document.createElement("div"); log.className = "ready-log"; log.hidden = true; body.append(log);
+      item.append(led, body);
+      return item;
+    }
+    function renderReadiness(env) {
+      state.env = env;
+      const root = $("readinessList"); root.replaceChildren();
+      const tools = env.tools || {};
+      const problems = env.problems || [];
+      const order = ["codex", "git", "gh"];
+      order.forEach(key => {
+        const tool = tools[key];
+        if (!tool) return;
+        const problem = problems.find(item => item.tool === key);
+        const kind = tool.state === "ok" ? "ok" : (problem && problem.severity === "blocker") ? "bad" : "warn";
+        const detailParts = [tool.purpose];
+        if (tool.found) {
+          detailParts.push(`${tool.path}${tool.version ? " · " + tool.version : ""}${tool.detected_via === "сканирование каталогов установки" ? " · найден вне PATH" : ""}`);
+        } else {
+          detailParts.push(problem ? problem.detail : "Не найден в PATH.");
+        }
+        const item = readyItem({
+          kind,
+          title: tool.state === "ok" ? `${tool.title} · готов` : `${tool.title} · ${tool.state === "missing" ? "не найден" : "нужен вход"}`,
+          detail: detailParts.filter(Boolean).join(" "),
+          command: tool.state === "missing" ? (problem ? problem.fix : tool.install.command || tool.install.manual) : tool.login.command,
+          installTool: tool.state === "missing" && problem && problem.can_install ? tool.key : "",
+          copyOnly: tool.state !== "missing",
+        });
+        root.append(item);
+      });
+      const jev = env.jev || {};
+      root.append(readyItem({
+        kind: jev.available ? "ok" : "warn",
+        title: jev.available ? "Jev · ключ есть" : "Jev · ключа нет (необязательно)",
+        detail: jev.note || "",
+        command: jev.available ? "" : "python -m ai_orchestrate jev-key set",
+        note: jev.available ? "" : "Или просто вставь ключ в поле ниже — панель сохранит его в отдельный файл с правами 0600.",
+      }));
+      const blockers = (env.blockers || []).length;
+      $("readinessSummary").textContent = blockers
+        ? `Нужно исправить: ${blockers}. Остальное работает.`
+        : "Всё готово к запуску задачи.";
+      root.querySelectorAll("[data-install]").forEach(button => {
+        button.addEventListener("click", () => installTool(button.dataset.install, button.closest(".ready-item")));
+      });
+      updateTopPills(env);
+    }
+    function updateTopPills(env) {
+      const tools = env.tools || {};
+      const codex = tools.codex || {};
+      const gh = tools.gh || {};
+      $("codexStatus").textContent = codex.state === "ok" ? "Codex CLI · вход активен" : codex.found ? "Codex CLI · нужен вход" : "Codex CLI не найден";
+      $("codexDot").classList.toggle("warn", codex.state !== "ok");
+      $("githubStatus").textContent = gh.state === "ok" ? "GitHub подключён" : gh.found ? "gh установлен · нужен вход" : "GitHub CLI gh не найден";
+      $("githubDot").classList.toggle("warn", gh.state !== "ok");
+      const jev = env.jev || {};
+      $("jevStatus").textContent = jev.available ? "Jev готов" : "Jev без ключа";
+      $("jevDot").classList.toggle("warn", !jev.available);
+    }
+    async function loadEnvironment(refresh = false) {
+      $("readinessSummary").textContent = refresh ? "Перепроверяю окружение…" : "Проверяю Codex CLI, Git, gh и ключ Jev…";
+      try {
+        const response = refresh
+          ? await fetch("/api/environment", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh: true }) })
+          : await fetch("/api/environment", { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Состояние окружения недоступно");
+        if (data.path_added && data.path_added.length) toast("PATH автодополнен: " + data.path_added.join(", "));
+        renderReadiness(data);
+      } catch (error) { $("readinessSummary").textContent = error.message; }
+    }
+    async function installTool(tool, itemNode) {
+      const button = itemNode.querySelector("[data-install]");
+      const log = itemNode.querySelector(".ready-log");
+      button.disabled = true; button.textContent = "Устанавливаю…";
+      log.hidden = false; log.textContent = "";
+      let seen = 0;
+      const append = job => {
+        if (!job.output || !job.output.length) return;
+        log.textContent += job.output.join("\n") + "\n";
+        seen = job.total_lines;
+        log.scrollTop = log.scrollHeight;
+      };
+      try {
+        const response = await fetch("/api/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tool }) });
+        let job = await response.json();
+        if (!response.ok) throw new Error(job.error || "Не удалось начать установку");
+        append(job);
+        while (job.status === "running") {
+          await new Promise(resolve => setTimeout(resolve, 700));
+          const poll = await fetch(`/api/setup/${encodeURIComponent(job.id)}?after=${seen}`, { cache: "no-store" });
+          job = await poll.json();
+          append(job);
+        }
+        if (job.status === "complete") toast(`${tool} установлен.`);
+        else toast(job.error || `Установка ${tool} завершилась с ошибкой — смотри вывод.`);
+      } catch (error) {
+        log.textContent += `\n${error.message}\n`;
+        toast(error.message);
+      } finally {
+        button.disabled = false; button.textContent = `Установить ${tool}`;
+        await loadEnvironment(true);
+      }
+    }
+    function applyJevKeyStatus(data) {
+      state.jevKey = data;
+      $("jevKeySource").textContent = data.available ? (data.source === "environment" ? "из окружения" : "сохранён локально") : "не задан";
+      $("jevKeyHint").textContent = (data.available ? `${data.note} ${data.masked}.` : data.note)
+        + ` Файл: ${data.path} (0600). Ключ не попадает в settings.json и не передаётся в Codex CLI.`;
+      $("jevOption").disabled = !data.available;
+      $("jevMergeOption").disabled = !data.available;
+      if (!data.available) {
+        if ($("router").value === "jev") { $("router").value = "local"; markSettingsDirty(); }
+        if ($("mergePolicy").value === "jev_auto") { $("mergePolicy").value = "confirm"; markSettingsDirty(); }
+      }
+    }
+    async function loadJevKey() {
+      try {
+        const response = await fetch("/api/jev-key", { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Статус ключа недоступен");
+        applyJevKeyStatus(data);
+      } catch (error) { $("jevKeySource").textContent = "статус ключа недоступен"; $("jevKeyHint").textContent = error.message; }
+    }
+    async function saveJevKey() {
+      const value = $("jevKey").value;
+      if (!value.trim()) { toast("Вставь ключ Jev или нажми «Удалить ключ»."); return; }
+      const button = $("saveJevKey"); button.disabled = true; button.textContent = "Сохраняю…";
+      try {
+        const response = await fetch("/api/jev-key", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: value }) });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось сохранить ключ");
+        $("jevKey").value = "";
+        applyJevKeyStatus(data);
+        toast("Ключ Jev сохранён локально и уже активен.");
+        loadEnvironment(true);
+      } catch (error) { toast(error.message); }
+      finally { button.disabled = false; button.textContent = "Сохранить ключ"; }
+    }
+    async function clearJevKey() {
+      if (!window.confirm("Удалить сохранённый ключ Jev с этого компьютера?")) return;
+      try {
+        const response = await fetch("/api/jev-key", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clear: true }) });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось удалить ключ");
+        applyJevKeyStatus(data);
+        toast(data.note || "Ключ удалён.");
+        loadEnvironment(true);
+      } catch (error) { toast(error.message); }
+    }
+    function renderProjects(data) {
+      state.projects = data;
+      const list = $("projectList"); const options = $("projectOptions");
+      list.replaceChildren(); options.replaceChildren();
+      const items = data.projects || [];
+      items.forEach(project => {
+        const option = document.createElement("option"); option.value = project.path; options.append(option);
+        const node = document.createElement("button");
+        node.type = "button"; node.className = "project-item";
+        if (!project.selectable) node.disabled = true;
+        const left = document.createElement("div");
+        const title = document.createElement("strong"); title.textContent = project.name || project.path;
+        const meta = document.createElement("span");
+        const bits = [project.path];
+        if (project.sessions) bits.push(`${project.sessions} сесс. Codex`);
+        if (project.last_used) bits.push(relativeTime(project.last_used));
+        if (project.branch) bits.push(`ветка ${project.branch}`);
+        meta.textContent = bits.join(" · ");
+        left.append(title, meta);
+        const badges = document.createElement("div");
+        badges.style.display = "flex"; badges.style.gap = "4px"; badges.style.flexWrap = "wrap"; badges.style.justifyContent = "flex-end";
+        const addBadge = (text, kind) => { const badge = document.createElement("span"); badge.className = `badge ${kind || ""}`; badge.textContent = text; badges.append(badge); };
+        if (project.sources.includes("codex")) addBadge("из Codex", "codex");
+        if (project.sources.includes("workspace")) addBadge("в области");
+        if (!project.exists) addBadge("папка недоступна", "off");
+        else if (!project.inside_workspace) addBadge("вне области", "off");
+        node.append(left, badges);
+        node.addEventListener("click", () => {
+          $("repo").value = project.path;
+          loadProjectContext();
+          if (!$("checks").value.trim()) suggestChecks();
+          markSettingsDirty();
+        });
+        list.append(node);
+      });
+      if (!items.length) {
+        const empty = document.createElement("div"); empty.className = "muted tiny";
+        empty.textContent = `Известных проектов пока нет. Codex пишет историю сессий в ${data.codex_sessions_dir}.`;
+        list.append(empty);
+      }
+      const codexCount = items.filter(item => item.sources.includes("codex")).length;
+      $("projectHint").textContent = `Проектов: ${items.length} (${codexCount} из истории Codex). Вне области ${data.workspace_root} выбрать нельзя — перезапусти панель с --workspace-root.`;
+    }
+    async function loadProjects() {
+      try {
+        const response = await fetch("/api/projects", { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Список проектов недоступен");
+        renderProjects(data);
+      } catch (error) { $("projectHint").textContent = error.message; }
+    }
+    async function autofillSettings() {
+      const button = $("autofillSettings"); button.disabled = true; button.textContent = "Подбираю…";
+      try {
+        const response = await fetch("/api/autofill", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ repo: $("repo").value.trim() }) });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Автонастройка не удалась");
+        applySettings(data.settings, data.settings.default_repo, data.check_suggestions, data.project_context || "");
+        state.settingsLoaded = true;
+        const report = data.report || { applied: [], suggestions: [] };
+        const changed = report.applied.filter(item => !item.kept);
+        const kept = report.applied.filter(item => item.kept);
+        const lines = [`Подобрано автоматически (${changed.length}):`];
+        changed.forEach(item => lines.push(`• ${item.label} = ${item.value} — ${item.reason}`));
+        if (kept.length) lines.push(`Не менялось: ${kept.map(item => item.label).join(", ")}.`);
+        report.suggestions.forEach(item => lines.push(`? ${item.label}: ${item.reason}`));
+        const node = $("autofillReport");
+        node.style.whiteSpace = "pre-wrap";
+        node.textContent = lines.join("\n");
+        toast("Автонастройка заполнила и сохранила настройки.");
+        updateCostPreview();
+      } catch (error) { toast(error.message); }
+      finally { button.disabled = false; button.textContent = "✨ Автонастройка"; }
+    }
+    async function resetSettings() {
+      if (!window.confirm("Сбросить настройки к значениям по умолчанию? Контексты проектов и ключ Jev останутся на месте.")) return;
+      try {
+        const response = await fetch("/api/defaults", { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось получить значения по умолчанию");
+        const payload = { ...data.settings, default_repo: $("repo").value.trim(), default_checks: $("checks").value };
+        const save = await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ settings: payload }) });
+        const saved = await save.json();
+        if (!save.ok) throw new Error(saved.error || "Не удалось сохранить настройки");
+        applySettings(saved.settings, saved.settings.default_repo, state.status?.check_suggestions || [], $("projectContext").value);
+        toast("Настройки сброшены к значениям по умолчанию.");
+        updateCostPreview();
+      } catch (error) { toast(error.message); }
+    }
     async function loadStatus() {
       try {
         const response = await fetch("/api/status", {cache:"no-store"});
@@ -872,14 +1393,6 @@
           const [model, effort] = data.models[option.value];
           option.textContent = `${option.value} · ${model} / ${effort}`;
         }
-        $("codexStatus").textContent = !data.codex_available ? "Codex CLI не найден" : data.codex_authenticated ? "Codex CLI · вход активен" : "Codex CLI · нужен вход";
-        $("codexDot").classList.toggle("warn", !data.codex_available || !data.codex_authenticated);
-        $("githubStatus").textContent = !data.github_cli_available ? "GitHub CLI gh не найден" : data.github_authenticated ? "GitHub подключён" : "gh установлен · нужен вход";
-        $("githubDot").classList.toggle("warn", !data.github_cli_available || !data.github_authenticated);
-        $("jevStatus").textContent = data.jev_available ? "Jev готов" : "Jev без ключа";
-        $("jevDot").classList.toggle("warn", !data.jev_available);
-        $("jevOption").disabled = !data.jev_available;
-        $("jevMergeOption").disabled = !data.jev_available;
         const select = $("profession"); select.replaceChildren();
         data.professions.forEach(person => { const option = document.createElement("option"); option.value = person.key; option.textContent = person.title; option.title = person.description; select.append(option); });
         const promptTitles = {analyst:"Аналитик", architect:"Архитектор", developer:"Разработчик", bugfixer:"Инженер по багам", frontend:"Frontend / UX-инженер", backend:"Backend-инженер", test_engineer:"Тест-инженер", docs_writer:"Технический писатель", reviewer:"Независимый ревьюер"};
@@ -892,6 +1405,9 @@
         state.settingsLoaded = true;
         $("settingsState").textContent = `Загружено: ${data.settings_file || "локальный settings.json"}`;
         loadHistory();
+        loadEnvironment();
+        loadJevKey();
+        loadProjects();
       } catch (error) { toast(`Не удалось загрузить панель: ${error.message}`); $("settingsState").textContent = "Настройки недоступны."; }
     }
     async function loadHistory() {
@@ -1059,6 +1575,26 @@
     $("confirmMergeButton").addEventListener("click", confirmMerge);
     $("discardWorktreeButton").addEventListener("click", discardWorktree);
     $("saveSettings").addEventListener("click", () => saveSettings(true).catch(error => toast(error.message)));
+    $("refreshEnvironment").addEventListener("click", () => { loadEnvironment(true); loadJevKey(); loadProjects(); });
+    $("saveJevKey").addEventListener("click", saveJevKey);
+    $("clearJevKey").addEventListener("click", clearJevKey);
+    $("toggleJevKey").addEventListener("click", () => {
+      const input = $("jevKey");
+      input.type = input.type === "password" ? "text" : "password";
+    });
+    $("jevKey").addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); saveJevKey(); } });
+    $("toggleProjects").addEventListener("click", () => {
+      const list = $("projectList");
+      list.hidden = !list.hidden;
+      if (!list.hidden) loadProjects();
+    });
+    $("autofillSettings").addEventListener("click", autofillSettings);
+    $("resetSettings").addEventListener("click", resetSettings);
+    document.querySelectorAll(".top-right .pill").forEach(node => {
+      node.classList.add("clickable");
+      node.title = "Открыть панель готовности";
+      node.addEventListener("click", () => $("readinessPanel").scrollIntoView({ behavior: "smooth", block: "start" }));
+    });
     $("promptRole").addEventListener("change", showRolePrompt);
     $("suggestChecks").addEventListener("click", suggestChecks);
     $("checkRepo").addEventListener("click", suggestChecks);
@@ -1075,6 +1611,27 @@
         toast("Jev выберет полосу сам; ручной выбор отключён.");
       }
       updateCostPreview(); markSettingsDirty();
+    });
+    $("executor").addEventListener("change", () => { syncExecutorFields(); updateCostPreview(); markSettingsDirty(); });
+    ["apiModel", "apiBaseUrl", "apiMaxRounds"].forEach(id => $(id).addEventListener("change", () => { syncExecutorFields(); markSettingsDirty(); }));
+    ["saveOpenaiKey", "saveOpenrouterKey", "clearOpenaiKey", "clearOpenrouterKey"].forEach(id => {
+      $(id).addEventListener("click", () => {
+        const provider = id.includes("Openrouter") ? "openrouter" : "openai";
+        const body = id.startsWith("clear") ? {clear:true} : {key: $(provider === "openai" ? "openaiKey" : "openrouterKey").value.trim()};
+        if (!id.startsWith("clear") && !body.key) { toast("Вставь ключ или нажми «Удалить»."); return; }
+        postKey(provider, body).catch(error => toast(error.message));
+      });
+    });
+    document.querySelectorAll("[data-toggle-key]").forEach(button => button.addEventListener("click", () => {
+      const input = $(button.dataset.toggleKey);
+      input.type = input.type === "password" ? "text" : "password";
+    }));
+    $("bridgePromptButton").addEventListener("click", buildBridgePrompt);
+    $("bridgeApplyButton").addEventListener("click", applyBridgeAnswer);
+    $("bridgeAnswer").addEventListener("input", syncBridgeButtons);
+    $("copyBridgePrompt").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText($("bridgePromptText").value); toast("Промпт скопирован — вставь его в ChatGPT."); }
+      catch (error) { $("bridgePromptText").select(); toast("Скопируй текст вручную (Ctrl+C)."); }
     });
     $("lane").addEventListener("change", () => {
       if ($("lane").value && $("router").value === "jev") {
@@ -1100,6 +1657,8 @@
     setInterval(() => { if (state.startAt && state.timer) $("timeMetric").textContent = formatTime((Date.now() - state.startAt) / 1000); }, 1000);
     setOrchestraScene("idle");
     updateCostPreview();
+    loadApiKeys();
+    syncBridgeButtons();
     loadStatus();
   </script>
 </body>

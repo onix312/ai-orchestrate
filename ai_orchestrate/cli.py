@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 from .core import (
     CodexResult,
@@ -327,13 +329,30 @@ def build_parser() -> argparse.ArgumentParser:
         description="Cost-aware model orchestration for Codex CLI.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("doctor", help="Check local prerequisites")
+    doctor_parser = sub.add_parser("doctor", help="Check local prerequisites and print how to fix each gap")
+    doctor_parser.add_argument("--json", action="store_true", help="Print the full environment report as JSON")
+    setup = sub.add_parser("setup", help="Detect prerequisites, repair PATH, install tools and autofill settings")
+    setup.add_argument("--install", action="store_true",
+                       help="Actually run the installer for missing Codex CLI / GitHub CLI")
+    setup.add_argument("--tools", default="codex,gh", help="Comma-separated tools to install (default: codex,gh)")
+    setup.add_argument("--repo", help="Repository to autofill settings for")
+    setup.add_argument("--autofill", action="store_true",
+                       help="Write generated settings (repo, checks, base branch, limits) to settings.json")
+    setup.add_argument("--settings-file", help="Persistent settings JSON path (default: ~/.ai-orchestrate/settings.json)")
+    setup.add_argument("--json", action="store_true", help="Print the report as JSON")
+    jev = sub.add_parser("jev-key", help="Store or clear the local Jev API key (never written to settings.json)")
+    jev.add_argument("action", choices=("status", "set", "clear"), nargs="?", default="status")
+    jev.add_argument("--key", help="Key value; omit to read it from stdin without echoing it")
+    keys = sub.add_parser("keys", help="Show, store or clear provider API keys (openai, openrouter, jev)")
+    keys.add_argument("action", choices=("status", "set", "clear"), nargs="?", default="status")
+    keys.add_argument("provider", choices=("openai", "openrouter", "jev"), nargs="?", default="openai")
+    keys.add_argument("--key", help="Key value; omit to read it from stdin without echoing it")
     usage = sub.add_parser("usage", help="Show token usage tracked from Codex CLI telemetry")
     usage.add_argument("--usage-log", help="Usage JSONL path (default: ~/.ai-orchestrate/usage.jsonl)")
 
     ui = sub.add_parser("ui", help="Open the local visual orchestration dashboard")
     ui.add_argument("--host", default="127.0.0.1", help="Bind address (use 0.0.0.0 only for a trusted preview)")
-    ui.add_argument("--port", type=int, default=8765)
+    ui.add_argument("--port", type=int, default=8790)
     ui.add_argument("--workspace-root", help="Restrict selectable projects to this directory (default: current directory)")
     ui.add_argument("--usage-log", help="Usage JSONL path (default: ~/.ai-orchestrate/usage.jsonl)")
     ui.add_argument("--settings-file", help="Persistent UI settings JSON path (default: ~/.ai-orchestrate/settings.json)")
@@ -366,16 +385,178 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _print_doctor(as_json: bool) -> int:
+    from . import env_setup, secrets
+
+    added = env_setup.refresh_path()
+    secrets.activate_stored_jev_key()
+    if as_json:
+        print(json.dumps(env_setup.environment_report(path_added=added), ensure_ascii=False, indent=2))
+        return 0
+    failed = False
+    for name, ok, detail, hint in doctor():
+        label = "OK" if ok else "MISSING"
+        print(f"{label} {name}: {detail}")
+        if hint:
+            print(f"      исправить: {hint}")
+        failed |= not ok
+    report = env_setup.environment_report()
+    if report["problems"]:
+        print("\nЧто мешает:")
+        for problem in report["problems"]:
+            marker = "!" if problem["severity"] == "blocker" else "·"
+            print(f" {marker} {problem['title']} — {problem['detail']}")
+            print(f"   {problem['fix']}")
+    else:
+        print("\nВсё готово к запуску: python -m ai_orchestrate ui")
+    return 1 if failed else 0
+
+
+def _run_setup(args: argparse.Namespace) -> int:
+    from . import autofill as autofill_module
+    from . import env_setup, secrets
+    from .settings import SettingsStore
+
+    added = env_setup.refresh_path()
+    secrets.activate_stored_jev_key()
+    report = env_setup.environment_report()
+    installed: list[dict[str, Any]] = []
+    if args.install:
+        for tool in [item.strip() for item in args.tools.split(",") if item.strip()]:
+            known = report["tools"].get(tool)
+            if known is None or not known["install"]["supported"]:
+                print(f"[setup] {tool}: автоустановка для этой системы не поддерживается", file=sys.stderr)
+                continue
+            if known["found"]:
+                print(f"[setup] {tool}: уже установлен ({known['path']})")
+                continue
+            print(f"[setup] {tool}: устанавливаю ({known['install']['command'] or 'установщик'})…")
+            result = env_setup.install_tool(tool, on_output=lambda line: print(f"  {line}"))
+            installed.append(result)
+            print(f"[setup] {tool}: {'готово' if result['ok'] else 'НЕ установлено — см. вывод выше'}")
+        env_setup.clear_auth_cache()
+        report = env_setup.environment_report()
+
+    settings_report: dict[str, Any] | None = None
+    saved_settings: dict[str, Any] | None = None
+    if args.autofill or args.repo:
+        settings_path = Path(args.settings_file).expanduser() if args.settings_file else None
+        store = SettingsStore(settings_path)
+        settings = store.load()
+        repo_value = args.repo or settings.get("default_repo")
+        if not repo_value:
+            print("[setup] не указан --repo, автозаполнение настроек пропущено", file=sys.stderr)
+        elif not Path(repo_value).expanduser().is_dir():
+            print(f"[setup] папка проекта не найдена: {repo_value}", file=sys.stderr)
+        else:
+            updates, settings_report = autofill_module.autofill(Path(repo_value).expanduser(), settings)
+            if args.autofill:
+                saved_settings = store.save(updates)
+                print(f"[setup] настройки сохранены: {store.path}")
+            for item in settings_report["applied"]:
+                marker = "=" if not item.get("kept") else "·"
+                print(f" {marker} {item['label']}: {item['value']!r} — {item['reason']}")
+            for item in settings_report["suggestions"]:
+                print(f" ? {item['label']}: {item['reason']}")
+
+    if args.json:
+        print(json.dumps({"environment": report, "installed": installed,
+                          "autofill": settings_report, "settings": saved_settings},
+                         ensure_ascii=False, indent=2))
+        return 0
+    print(f"\n{env_setup.summarize_environment(report)}")
+    if added:
+        print("PATH автодополнен: " + ", ".join(added))
+    for problem in report["problems"]:
+        print(f"- {problem['title']}: {problem['fix']}")
+    blockers = [item for item in report["problems"] if item["severity"] == "blocker"]
+    if blockers:
+        return 1
+    print("Готово. Запусти панель: python -m ai_orchestrate ui")
+    return 0
+
+
+def _run_jev_key(args: argparse.Namespace) -> int:
+    from . import secrets
+
+    if args.action == "status":
+        status = secrets.jev_key_status()
+        print(("Ключ Jev: " + status["masked"] + f" ({status['note']})") if status["available"]
+              else f"Ключ Jev не задан. Файл: {status['path']}")
+        print(f"Сохранить: python -m ai_orchestrate jev-key set   (переменная: {status['env_var']})")
+        return 0 if status["available"] else 1
+    if args.action == "set":
+        raw = args.key
+        if raw is None:
+            if sys.stdin.isatty():
+                import getpass
+
+                raw = getpass.getpass("Вставь ключ Jev (ввод не отображается): ")
+            else:
+                raw = sys.stdin.read()
+        status = secrets.save_jev_key(raw)
+        print(f"Ключ сохранён: {status['masked']} → {status['path']} (0600)")
+        print("Ключ не попадает в settings.json и не передаётся в Codex CLI.")
+        return 0
+    status = secrets.clear_jev_key()
+    print(status["note"])
+    return 0
+
+
+def _run_keys(args: argparse.Namespace) -> int:
+    from . import secrets
+
+    provider_id = args.provider
+    if args.action == "status":
+        for name, status in secrets.all_key_status().items():
+            shown = status["masked"] if status["available"] else "не задан"
+            print(f"{status['label']:<11} {shown}  ({status['note']})")
+        print("Сохранить: python -m ai_orchestrate keys set openai   (ключ читается без эха)")
+        return 0
+    if args.action == "set":
+        raw = args.key
+        if raw is None:
+            if sys.stdin.isatty():
+                import getpass
+
+                raw = getpass.getpass(f"Вставь ключ {secrets.provider(provider_id).label} (ввод не отображается): ")
+            else:
+                raw = sys.stdin.read()
+        status = secrets.save_key(provider_id, raw)
+        print(f"Ключ сохранён: {status['masked']} → {status['path']} (0600)")
+        print("Ключ не попадает в settings.json.")
+        return 0
+    print(secrets.clear_key(provider_id)["note"])
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "doctor":
-        failed = False
-        for name, ok, detail in doctor():
-            label = "OK" if ok else "MISSING"
-            print(f"{label} {name}: {detail}")
-            failed |= not ok
-        return 1 if failed else 0
+        try:
+            return _print_doctor(bool(args.json))
+        except OrchestratorError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    if args.command == "setup":
+        try:
+            return _run_setup(args)
+        except (OrchestratorError, OSError, subprocess.SubprocessError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    if args.command == "jev-key":
+        try:
+            return _run_jev_key(args)
+        except OrchestratorError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    if args.command == "keys":
+        try:
+            return _run_keys(args)
+        except OrchestratorError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
     if args.command == "usage":
         try:
             return _print_usage(default_usage_path(args.usage_log))

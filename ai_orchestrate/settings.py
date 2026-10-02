@@ -8,7 +8,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 
-from .core import OrchestratorError
+from .core import OrchestratorError, state_dir
 
 
 def default_settings() -> dict[str, Any]:
@@ -19,6 +19,10 @@ def default_settings() -> dict[str, Any]:
         "mode": "full",
         "profession": "developer",
         "router": "local",
+        "executor": "codex",
+        "api_model": "",
+        "api_base_url": "",
+        "api_max_rounds": 12,
         "lane": "",
         "luna_model": "gpt-6-luna",
         "sol_model": "gpt-6-sol",
@@ -37,7 +41,7 @@ def default_settings() -> dict[str, Any]:
         "delete_branch": True,
         "base_branch": "",
         "branch_prefix": "ai-orchestrate",
-        "worktree_root": str(Path.home() / ".ai-orchestrate" / "worktrees"),
+        "worktree_root": str(state_dir() / "worktrees"),
         "usage_log_path": "",
         "journal_path": "",
         "save_journal": True,
@@ -52,7 +56,9 @@ _INT_RANGES = {
     "daily_token_budget": (100, 10000000),
     "codex_timeout": (10, 7200),
     "check_timeout": (1, 3600),
+    "api_max_rounds": (1, 40),
 }
+_API_URL_RE = re.compile(r"^https?://[^\s]{1,2000}$")
 _MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$")
 _BRANCH_PREFIX_RE = re.compile(r"^[A-Za-z0-9._/-]{1,100}$")
 _ALLOWED_KEYS = frozenset(default_settings())
@@ -79,7 +85,8 @@ def normalize_settings(value: dict[str, Any], base: dict[str, Any] | None = None
 
     for key, maximum in (("default_repo", 2048), ("worktree_root", 2048),
                          ("usage_log_path", 2048), ("journal_path", 2048),
-                         ("default_checks", 6000), ("base_branch", 200)):
+                         ("default_checks", 6000), ("base_branch", 200),
+                         ("api_base_url", 2048)):
         item = result.get(key)
         if not isinstance(item, str) or len(item) > maximum or "\x00" in item:
             raise OrchestratorError(f"Некорректное значение настройки {key}.")
@@ -93,7 +100,7 @@ def normalize_settings(value: dict[str, Any], base: dict[str, Any] | None = None
     if result["worktree_root"]:
         result["worktree_root"] = _resolved_path(result["worktree_root"], "worktree_root")
     else:
-        result["worktree_root"] = _resolved_path(str(Path.home() / ".ai-orchestrate" / "worktrees"), "worktree_root")
+        result["worktree_root"] = _resolved_path(str(state_dir() / "worktrees"), "worktree_root")
 
     checks = [line.strip() for line in result["default_checks"].splitlines() if line.strip()]
     if len(checks) > 12:
@@ -116,6 +123,11 @@ def normalize_settings(value: dict[str, Any], base: dict[str, Any] | None = None
         raise OrchestratorError("Режим должен быть quick или full.")
     if not isinstance(result["router"], str) or result["router"] not in {"local", "jev"}:
         raise OrchestratorError("Роутер должен быть local или jev.")
+    if not isinstance(result["executor"], str) or result["executor"] not in {"codex", "api"}:
+        raise OrchestratorError("Исполнитель должен быть codex или api.")
+    api_base_url = result["api_base_url"]
+    if api_base_url and not _API_URL_RE.fullmatch(api_base_url):
+        raise OrchestratorError("API-адрес должен начинаться с http:// или https:// и не содержать пробелов.")
     if not isinstance(result["merge_policy"], str) or result["merge_policy"] not in {"confirm", "jev_auto"}:
         raise OrchestratorError("Политика слияния должна быть confirm или jev_auto.")
     if not isinstance(result["merge_target"], str) or result["merge_target"] not in {"local", "github"}:
@@ -136,6 +148,9 @@ def normalize_settings(value: dict[str, Any], base: dict[str, Any] | None = None
     review_model = result.get("review_model")
     if not isinstance(review_model, str) or (review_model and not _MODEL_RE.fullmatch(review_model)):
         raise OrchestratorError("Некорректное имя модели ревьюера.")
+    api_model = result.get("api_model")
+    if not isinstance(api_model, str) or (api_model and not _MODEL_RE.fullmatch(api_model)):
+        raise OrchestratorError("Некорректное имя API-модели.")
     for key, (minimum, maximum) in _INT_RANGES.items():
         item = result.get(key)
         if isinstance(item, bool) or not isinstance(item, int) or not minimum <= item <= maximum:
@@ -163,7 +178,7 @@ class SettingsStore:
     """Small atomic, user-local settings store. Secrets are intentionally not stored here."""
 
     def __init__(self, path: Path | None = None) -> None:
-        self.path = (path or (Path.home() / ".ai-orchestrate" / "settings.json")).expanduser().resolve(strict=False)
+        self.path = (path or (state_dir() / "settings.json")).expanduser().resolve(strict=False)
         self._lock = RLock()
 
     def load(self) -> dict[str, Any]:
