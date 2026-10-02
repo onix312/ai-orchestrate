@@ -305,6 +305,19 @@ class UsageTests(unittest.TestCase):
             self.assertNotIn("prompt", entries[0])
             self.assertEqual(entries[0]["cached_input_tokens"], 50)
 
+    def test_custom_usage_path_does_not_change_parent_permissions_and_keeps_file_private(self):
+        if os.name == "nt":
+            self.skipTest("POSIX permission bits are not portable to Windows")
+        with tempfile.TemporaryDirectory() as tmp:
+            shared = Path(tmp) / "shared"
+            shared.mkdir(mode=0o755)
+            shared.chmod(0o755)
+            path = shared / "usage.jsonl"
+            self.assertTrue(append_usage(path, model="m", effort="low", role="coder", attempt=1,
+                                         returncode=0, usage=CodexUsage(10, 0, 2)))
+            self.assertEqual(shared.stat().st_mode & 0o777, 0o755)
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
     def test_unknown_usage_is_not_written(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "usage.jsonl"

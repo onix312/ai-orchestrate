@@ -62,10 +62,23 @@
     textarea { resize:vertical; min-height:84px; line-height:1.45; }
     #task { min-height:133px; }
     #checks { min-height:70px; font:12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
-    .repo-row { display:flex; gap:7px; }
-    .repo-row input { min-width:0; }
+    .repo-row, .context-row { display:flex; gap:7px; }
+    .repo-row input, .context-row input { min-width:0; }
     .icon-button { flex:0 0 40px; border:1px solid var(--line); border-radius:10px; color:#d2dde7; background:#182330; }
     .icon-button:hover { border-color:#60778d; }
+    .context-row button, .secondary-button { border:1px solid #385148; border-radius:9px; padding:8px 10px; color:#a9efd0; background:rgba(66,125,103,.13); font-size:10px; font-weight:700; white-space:nowrap; }
+    .context-note, .settings-state { display:block; min-height:16px; margin-top:5px; color:#8fa1af; font-size:10px; overflow-wrap:anywhere; }
+    .settings-save-row { display:flex; align-items:center; gap:10px; margin-top:14px; }
+    .settings-save-row .secondary-button { flex:0 0 auto; padding:9px 12px; }
+    .settings-save-row .settings-state { margin:0; }
+    .action-row { display:flex; flex-wrap:wrap; gap:8px; margin-top:11px; }
+    .action-row button { border:1px solid #54705f; border-radius:9px; padding:9px 12px; color:#d4f6e7; background:#18342b; font-size:11px; font-weight:750; }
+    .action-row button:hover { filter:brightness(1.12); }
+    .action-row button.danger { border-color:#714149; color:#ffc2c5; background:#321e24; }
+    .history-list { display:grid; gap:7px; max-height:230px; overflow:auto; }
+    .history-entry { border:1px solid #263442; border-radius:9px; padding:8px 9px; background:#0d151d; }
+    .history-entry strong { display:block; color:#d1dce5; font-size:10px; overflow-wrap:anywhere; }
+    .history-entry span { display:block; margin-top:3px; color:#8292a0; font:9px/1.45 ui-monospace,monospace; overflow-wrap:anywhere; }
     .segmented { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
     .mode-option { padding:11px 10px; background:#0d151e; border:1px solid #293745; border-radius:12px; cursor:pointer; min-height:78px; }
     .mode-option.active { border-color:rgba(131,240,193,.7); background:linear-gradient(145deg,rgba(131,240,193,.10),rgba(20,34,45,.8)); box-shadow:inset 0 0 0 1px rgba(131,240,193,.12); }
@@ -205,6 +218,8 @@
     .event-meta pre { white-space:pre-wrap; color:#aebdca; background:#0b121a; border:1px solid #23313e; border-radius:8px; padding:8px; max-height:130px; overflow:auto; font:10px/1.45 ui-monospace,monospace; }
     .event-details { margin-top:5px; color:#93a4b2; font-size:10px; }
     .event-details summary { cursor:pointer; color:#9feaca; }
+    .github-link { display:inline-block; margin-top:5px; color:#9feaca; font-size:10px; text-decoration:none; }
+    .github-link:hover { text-decoration:underline; }
     .event-details pre { margin:5px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; color:#b8c6d1; background:#0b121a; border:1px solid #23313e; border-radius:8px; padding:8px; max-height:160px; overflow:auto; font:10px/1.45 ui-monospace,monospace; }
     .plan-body { color:#b7c4cf; font-size:11px; line-height:1.55; white-space:pre-wrap; max-height:255px; overflow:auto; }
     .plan-empty { color:#778694; font-size:11px; }
@@ -237,7 +252,8 @@
       <div class="top-right">
         <span class="top-note" id="workspaceLabel">Подключаю рабочую область…</span>
         <span class="pill"><i class="dot warn" id="codexDot"></i><span id="codexStatus">Проверка Codex</span></span>
-        <span class="pill"><span class="dot warn" id="jevDot"></span><span id="jevStatus">Jev отключён</span></span>
+        <span class="pill"><i class="dot warn" id="githubDot"></i><span id="githubStatus">Проверка GitHub CLI</span></span>
+        <span class="pill"><i class="dot warn" id="jevDot"></i><span id="jevStatus">Jev отключён</span></span>
       </div>
     </header>
 
@@ -254,8 +270,13 @@
           </div>
           <div class="field">
             <label for="task">Что нужно сделать?</label>
-            <textarea id="task" required maxlength="48000" placeholder="Например: Добавь страницу настроек с тёмной темой, сохранением выбора и тестами. Сначала посмотри, как устроен проект."></textarea>
-            <div class="field-hint" style="margin-top:5px">Пиши как человеку. Не вставляй ключи, пароли и приватные данные.</div>
+            <textarea id="task" maxlength="48000" placeholder="Например: Добавь страницу настроек с тёмной темой, сохранением выбора и тестами. Сначала посмотри, как устроен проект."></textarea>
+            <div class="field-hint" style="margin-top:5px">Пиши как человеку. Не вставляй ключи, пароли и приватные данные. Можно оставить пустым, если ниже указан GitHub issue/PR.</div>
+          </div>
+          <div class="field">
+            <label for="githubItem">Контекст из GitHub <span class="field-hint">issue/PR этого репозитория</span></label>
+            <div class="context-row"><input id="githubItem" type="text" placeholder="#42 или https://github.com/owner/repo/issues/42"><button type="button" id="loadGithubContext">Загрузить</button></div>
+            <span class="context-note" id="githubContextNote">gh CLI использует ваш существующий вход через gh auth login.</span>
           </div>
           <div class="field">
             <div class="label-row"><label for="checks" style="margin:0">Автопроверки <span class="field-hint">по одной команде на строку</span></label><button class="subtle" type="button" id="suggestChecks" style="border:0;background:none;color:#8de3c1">автонайти</button></div>
@@ -287,10 +308,10 @@
             </div>
           </details>
           <details class="limits">
-            <summary>Бюджет, повторы и безопасность</summary>
+            <summary>Бюджет, модели и таймауты</summary>
             <div class="limits-inner">
               <div class="two-col">
-                <div class="field"><label for="repairs">Исправления</label><input id="repairs" type="number" min="0" max="3" value="1"></div>
+                <div class="field"><label for="repairs">Автоисправления</label><input id="repairs" type="number" min="0" max="3" value="1"></div>
                 <div class="field"><label for="maxCalls">Макс. вызовов</label><input id="maxCalls" type="number" min="1" max="10" value="5"></div>
               </div>
               <div class="two-col">
@@ -299,13 +320,48 @@
               </div>
               <div class="footnote" id="dailyUsage">Загружаю учтённое использование за сегодня…</div>
               <div class="field"><label for="promptBudget">Текст промптов · оценка</label><input id="promptBudget" type="number" min="100" step="1000" value="16000"></div>
-              <label class="toggle-row"><input id="allowDirty" type="checkbox"> Разрешить незакоммиченные изменения <span class="field-hint">ревью увидит и их</span></label>
-              <div class="footnote">Лимиты токенов останавливают следующие вызовы. Активный ход Codex может перейти лимит — это не hard cap провайдера.</div>
+              <div class="two-col">
+                <div class="field"><label for="codexTimeout">Таймаут Codex · сек</label><input id="codexTimeout" type="number" min="10" max="7200" step="60" value="1800"></div>
+                <div class="field"><label for="checkTimeout">Таймаут проверки · сек</label><input id="checkTimeout" type="number" min="1" max="3600" step="30" value="300"></div>
+              </div>
+              <div class="field"><label for="lunaModel">Модель Luna / обычные полосы</label><input id="lunaModel" type="text" maxlength="120" value="gpt-6-luna"></div>
+              <div class="two-col">
+                <div class="field"><label for="solModel">Модель Sol / эскалация</label><input id="solModel" type="text" maxlength="120" value="gpt-6-sol"></div>
+                <div class="field"><label for="reviewModel">Модель ревьюера <span class="field-hint">пусто = альтернативная</span></label><input id="reviewModel" type="text" maxlength="120" placeholder="автовыбор"></div>
+              </div>
+              <label class="toggle-row"><input id="saveJournal" type="checkbox" checked> Сохранять краткий журнал запусков</label>
+              <div class="two-col">
+                <div class="field"><label for="usageLogPath">Файл token ledger <span class="field-hint">пусто = по умолчанию</span></label><input id="usageLogPath" type="text" maxlength="2048" placeholder="~/.ai-orchestrate/usage.jsonl"></div>
+                <div class="field"><label for="journalPath">Файл журнала <span class="field-hint">пусто = по умолчанию</span></label><input id="journalPath" type="text" maxlength="2048" placeholder="~/.ai-orchestrate/journal.jsonl"></div>
+              </div>
+              <div class="footnote">Фактический исполнитель — Codex CLI. Он использует авторизацию Codex, в том числе вход через ChatGPT, если он подключён в CLI. Прямое управление окном ChatGPT и автоматизация браузера не используются. Токеновые лимиты не прерывают уже активный ход.</div>
             </div>
           </details>
+          <details class="limits" open>
+            <summary>GitHub, ветки и автоматическое слияние</summary>
+            <div class="limits-inner">
+              <div class="field"><label for="mergePolicy">Когда сливать готовую задачу</label>
+                <select id="mergePolicy"><option value="confirm">После кнопки «Подтвердить слияние»</option><option value="jev_auto" id="jevMergeOption">Автоматически после финального APPROVE от Jev</option></select>
+              </div>
+              <div class="two-col">
+                <div class="field"><label for="mergeTarget">Куда сливать</label><select id="mergeTarget"><option value="local">Локально · fast-forward в базовую ветку</option><option value="github">GitHub · pull request и merge</option></select></div>
+                <div class="field"><label for="mergeMethod">Способ GitHub merge</label><select id="mergeMethod"><option value="squash">Squash</option><option value="merge">Merge commit</option><option value="rebase">Rebase</option></select></div>
+              </div>
+              <div class="field"><label for="baseBranch">Базовая ветка <span class="field-hint">пусто = текущая / default</span></label><input id="baseBranch" type="text" maxlength="200" placeholder="main"></div>
+              <div class="field"><label for="projectContext">Постоянный контекст проекта <span class="field-hint">отдельно для каждой папки</span></label><textarea id="projectContext" maxlength="12000" placeholder="Архитектурные правила, команды запуска, важные договорённости. Не сохраняй сюда ключи и пароли."></textarea><div class="field-hint">Этот контекст добавляется к каждой задаче только для выбранного репозитория и сохраняется в settings.json.</div></div>
+              <div class="two-col">
+                <div class="field"><label for="branchPrefix">Префикс рабочих веток</label><input id="branchPrefix" type="text" maxlength="100" value="ai-orchestrate"></div>
+                <div class="field"><label for="worktreeRoot">Каталог изолированных worktree</label><input id="worktreeRoot" type="text" maxlength="2048" placeholder="~/.ai-orchestrate/worktrees"></div>
+              </div>
+              <label class="toggle-row"><input id="waitForGithubChecks" type="checkbox" checked> В GitHub дождаться обязательных checks через auto-merge</label>
+              <label class="toggle-row"><input id="deleteBranch" type="checkbox" checked> Удалить рабочую ветку после успешного слияния</label>
+              <div class="footnote">Codex всегда работает в отдельном worktree. Локальное слияние выполняется только fast-forward и только если исходная ветка не изменилась и checkout чист. Для GitHub используется ваш gh auth; write/push/merge происходит только автоматически после APPROVE Jev или после явной кнопки подтверждения. Jev получает ограниченный diff, сводку задачи, результаты проверок и ревью — не API-ключ.</div>
+            </div>
+          </details>
+          <div class="settings-save-row"><button class="secondary-button" type="button" id="saveSettings">Сохранить настройки</button><span class="settings-state" id="settingsState" role="status">Настройки загружаются…</span></div>
           <button class="primary" type="submit" id="startButton">▶　Запустить полный цикл</button>
           <button class="cancel" type="button" id="cancelButton">■　Отменить задачу</button>
-          <div class="footnote">По умолчанию запускается только одна задача одновременно. Git-репозиторий должен быть чистым, если не включён переключатель выше.</div>
+          <div class="footnote">Настройки сохраняются локально в settings.json. Каждая задача создаёт отдельную ветку и worktree; исходный checkout не редактируется. Слияние никогда не выполняется вручную в терминале этим агентом.</div>
         </form>
       </aside>
 
@@ -407,7 +463,7 @@
           <div class="jev-disclaimer">Показываем этап, итоговый выбор и вероятности API. Приватная chain-of-thought не запрашивается и не отображается.</div>
         </section>
 
-        <div class="result-banner" id="resultBanner"><strong id="resultTitle"></strong><span id="resultText"></span></div>
+        <div class="result-banner" id="resultBanner"><strong id="resultTitle"></strong><span id="resultText"></span><div class="action-row"><button type="button" id="confirmMergeButton" style="display:none">✓　Подтвердить слияние</button><button type="button" id="discardWorktreeButton" class="danger" style="display:none">Удалить ветку и worktree</button></div></div>
 
         <div class="content-grid">
           <section class="card panel">
@@ -418,6 +474,7 @@
             <section class="card panel"><div class="panel-title"><h2>План / критерии</h2><span class="counter">АНАЛИТИК + АРХИТЕКТОР</span></div><div class="plan-body" id="planBody"><span class="plan-empty">В полном цикле появится после этапа планирования.</span></div></section>
             <section class="card panel"><div class="panel-title"><h2>Проверки</h2><span class="counter" id="checkCount">0</span></div><div class="checks-list" id="checksList"><div class="plan-empty">Проверки ещё не запускались.</div></div></section>
             <section class="card panel"><div class="panel-title"><h2>Изменённые файлы</h2><span class="counter" id="fileCount">0</span></div><div class="files-list" id="filesList"><span class="plan-empty">Пока пусто.</span></div></section>
+            <section class="card panel"><div class="panel-title"><h2>Недавняя работа</h2><span class="counter">локальный журнал</span></div><div class="history-list" id="historyList"><span class="plan-empty">Пока нет завершённых запусков.</span></div></section>
           </div>
         </div>
       </main>
@@ -428,7 +485,7 @@
     const $ = (id) => document.getElementById(id);
     const stepIds = ["preflight", "routing", "planning", "implementation", "testing", "review", "final"];
     const stageOrder = Object.fromEntries(stepIds.map((id, i) => [id, i]));
-    let state = { mode: "full", status: null, jobId: null, lastEvent: 0, calls: 0, maxCalls: 0, tokens: 0, dailyTokens: null, startAt: 0, timer: null, polling: false, files: new Set(), checkMap: new Map() };
+    let state = { mode: "full", status: null, jobId: null, lastEvent: 0, calls: 0, maxCalls: 0, tokens: 0, dailyTokens: null, startAt: 0, timer: null, polling: false, files: new Set(), checkMap: new Map(), settingsTimer: null, settingsLoaded: false, settingsSaving: false, githubItem: null, projectContextRepo: "" };
 
     function toast(message) {
       const node = $("toast"); node.textContent = message; node.classList.add("show");
@@ -469,7 +526,7 @@
       return `${Math.floor(seconds / 60)}м ${Math.round(seconds % 60)}с`;
     }
     function statusLabel(status) {
-      return ({queued:"В очереди", running:"Выполняется", complete:"Готово", incomplete:"Нужна проверка", failed:"Ошибка", cancelled:"Отменено"})[status] || status;
+      return ({queued:"В очереди", running:"Выполняется", merging:"Слияние…", awaiting_confirmation:"Ожидает подтверждения слияния", complete:"Готово", incomplete:"Нужна проверка", failed:"Ошибка", cancelled:"Отменено"})[status] || status;
     }
     const orchestraLabels = {
       idle: "ОРКЕСТР ГОТОВ", preflight: "ПРОВЕРКА ПРОЕКТА", routing: "ТРИАЖ", planning: "ПЛАНИРОВАНИЕ",
@@ -508,6 +565,15 @@
       if (event.includes("warning")) return ["!", "warn"];
       return ["·", ""];
     }
+    function addGitHubLink(parent, href, label) {
+      try {
+        const url = new URL(href);
+        if (url.protocol !== "https:" || !["github.com", "www.github.com"].includes(url.hostname.toLowerCase())) return;
+        const link = document.createElement("a");
+        link.className = "github-link"; link.href = url.href; link.target = "_blank"; link.rel = "noopener noreferrer";
+        link.textContent = label; parent.append(link);
+      } catch (_) { /* Ignore untrusted or malformed links. */ }
+    }
     function addTimeline(event) {
       const empty = $("emptyState"); if (empty) empty.remove();
       const node = document.createElement("div"); node.className = "event";
@@ -524,12 +590,20 @@
       let extras = [];
       if (data.command) extras.push(`$ ${data.command}`);
       if (data.model) extras.push(`${data.model}${data.effort ? " / " + data.effort : ""}`);
-      if (data.total_tokens != null) extras.push(`input ${data.input_tokens ?? "?"} · output ${data.output_tokens ?? "?"} · всего ${data.total_tokens}`);
+      if (data.total_tokens != null) {
+        const cached = data.cached_input_tokens != null ? ` · cached ${data.cached_input_tokens}` : "";
+        extras.push(`input ${data.input_tokens ?? "?"}${cached} · output ${data.output_tokens ?? "?"} · всего ${data.total_tokens}`);
+      }
       if (data.error_type) extras.push(`тип ошибки: ${data.error_type}`);
       if (extras.length) { const meta = document.createElement("div"); meta.className = "event-meta"; meta.textContent = extras.join("\n"); main.append(meta); }
       if (data.excerpt && event.event === "model.message") addEventDetails(main, "Краткий ответ роли", data.excerpt);
       if (data.findings) addEventDetails(main, "Замечания ревью", data.findings);
       if (data.output && event.event === "check.result") addEventDetails(main, "Вывод проверки", data.output);
+      if (data.cleanup_warning) addEventDetails(main, "Предупреждение GitHub", data.cleanup_warning);
+      if (event.event === "worktree.created" && data.github_url) addGitHubLink(main, data.github_url, "Открыть issue / PR");
+      if (["merge.completed", "merge.queued"].includes(event.event) && data.url) {
+        addGitHubLink(main, data.url, `Открыть pull request${data.number ? ` #${data.number}` : ""}`);
+      }
       node.append(iconNode, main); $("timeline").prepend(node);
       $("eventCount").textContent = `${document.querySelectorAll(".event").length} событий`;
     }
@@ -620,6 +694,20 @@
         state.calls = Math.max(state.calls, Number(data.call || state.calls + 1));
         $("callsMetric").textContent = `${state.calls} / ${data.call_limit || "—"}`;
       }
+      if (event.event === "worktree.created") updateOrchestraAction(`Изолированная ветка ${data.branch || "готова"}; исходный checkout не меняется.`);
+      if (event.event === "merge.started") { $("runStatus").textContent = "Выполняю подтверждённое слияние…"; setOrchestraScene("final", event.message); }
+      if (event.event === "merge.awaiting_confirmation") {
+        const banner = $("resultBanner"); banner.classList.add("show"); banner.classList.remove("fail");
+        $("resultTitle").textContent = "Готово к слиянию"; $("resultText").textContent = event.message || "Нажми подтверждение, чтобы применить готовые изменения.";
+        setOrchestraScene("final", event.message);
+      }
+      if (event.event === "merge.failed") {
+        const banner = $("resultBanner"); banner.classList.add("show", "fail");
+        $("resultTitle").textContent = "Слияние не выполнено"; $("resultText").textContent = event.message || "Рабочая ветка сохранена; исправь причину и повтори подтверждение.";
+      }
+      if (event.event === "merge.completed" || event.event === "merge.queued") {
+        updateOrchestraAction(event.message || "Слияние завершено.");
+      }
       if (["run.completed", "run.incomplete", "run.failed", "run.cancelled"].includes(event.event)) {
         stepIds.forEach(id => {
           const node = document.querySelector(`.step[data-stage="${id}"]`);
@@ -656,43 +744,169 @@
         const job = await response.json();
         job.events.forEach(applyEvent);
         $("runStatus").textContent = statusLabel(job.status) + (job.error ? ` · ${job.error}` : "");
-        if (["complete", "incomplete", "failed", "cancelled"].includes(job.status)) {
+        const confirmButton = $("confirmMergeButton"), discardButton = $("discardWorktreeButton");
+        confirmButton.style.display = job.can_confirm ? "inline-flex" : "none";
+        confirmButton.disabled = job.status === "merging";
+        if (job.can_confirm && (job.result?.jev_decision === "REJECT" || job.result?.jev_decision === "UNAVAILABLE")) {
+          confirmButton.textContent = "⚠　Подтвердить вручную несмотря на решение Jev";
+        } else if (job.can_confirm) {
+          confirmButton.textContent = "✓　Подтвердить слияние";
+        }
+        discardButton.style.display = job.can_discard ? "inline-flex" : "none";
+        if (job.status === "awaiting_confirmation") {
+          clearInterval(state.timer); state.timer = null;
+          $("cancelButton").style.display = "none"; $("startButton").disabled = true;
+          $("startButton").textContent = "Ожидается решение по слиянию";
+          const banner = $("resultBanner"); banner.classList.add("show");
+          if (!$("resultTitle").textContent || $("resultTitle").textContent === "Цикл завершён") $("resultTitle").textContent = "Готово к слиянию";
+          if (job.error) { banner.classList.add("fail"); $("resultText").textContent = job.error; }
+          else if (!$("resultText").textContent) $("resultText").textContent = "Проверки пройдены. Подтверди слияние или удали рабочую ветку.";
+        } else if (["complete", "incomplete", "failed", "cancelled"].includes(job.status)) {
           clearInterval(state.timer); state.timer = null; $("cancelButton").style.display = "none"; $("startButton").disabled = false;
-          $("startButton").textContent = "↻　Запустить новый цикл";
+          $("startButton").textContent = "↻　Запустить новую задачу";
           if (job.result) {
             state.tokens = Number(job.result.run_tokens || state.tokens); state.calls = Number(job.result.model_calls || state.calls);
             $("tokensMetric").textContent = state.tokens.toLocaleString(); $("callsMetric").textContent = `${state.calls} / ${state.maxCalls || state.calls}`;
+            if (job.result.branch) $("resultText").textContent += ` Ветка: ${job.result.branch}.`;
           }
+          if (!job.can_discard) discardButton.style.display = "none";
+          loadHistory();
+        } else {
+          confirmButton.style.display = "none"; discardButton.style.display = "none";
+          $("startButton").disabled = true; $("cancelButton").style.display = "block";
         }
-      } catch (error) { toast(error.message); clearInterval(state.timer); state.timer = null; $("startButton").disabled = false; }
+      } catch (error) { toast(error.message); clearInterval(state.timer); state.timer = null; }
       finally { state.polling = false; }
+    }
+    function collectSettings() {
+      return {
+        default_repo: $("repo").value.trim(), default_checks: $("checks").value,
+        project_context: state.projectContextRepo === $("repo").value.trim() ? $("projectContext").value : undefined,
+        mode: state.mode, profession: $("profession").value, router: $("router").value,
+        lane: $("lane").value, luna_model: $("lunaModel").value.trim(), sol_model: $("solModel").value.trim(),
+        review_model: $("reviewModel").value.trim(), max_repairs: Number($("repairs").value),
+        max_model_calls: Number($("maxCalls").value), prompt_token_budget: Number($("promptBudget").value),
+        max_run_tokens: Number($("runBudget").value), daily_token_budget: Number($("dayBudget").value),
+        codex_timeout: Number($("codexTimeout").value), check_timeout: Number($("checkTimeout").value),
+        merge_policy: $("mergePolicy").value, merge_target: $("mergeTarget").value,
+        merge_method: $("mergeMethod").value, wait_for_github_checks: $("waitForGithubChecks").checked,
+        delete_branch: $("deleteBranch").checked, base_branch: $("baseBranch").value.trim(),
+        branch_prefix: $("branchPrefix").value.trim(), worktree_root: $("worktreeRoot").value.trim(),
+        save_journal: $("saveJournal").checked, usage_log_path: $("usageLogPath").value.trim(),
+        journal_path: $("journalPath").value.trim(),
+      };
+    }
+    function markSettingsDirty() {
+      if (!state.settingsLoaded) return;
+      $("settingsState").textContent = "Есть несохранённые изменения…";
+      clearTimeout(state.settingsTimer);
+      state.settingsTimer = setTimeout(() => saveSettings(false).catch(error => {
+        $("settingsState").textContent = `Не сохранено: ${error.message}`;
+      }), 900);
+    }
+    async function saveSettings(showToast = true) {
+      clearTimeout(state.settingsTimer); state.settingsTimer = null;
+      if (!state.settingsLoaded || state.settingsSaving) return;
+      state.settingsSaving = true; $("saveSettings").disabled = true;
+      $("settingsState").textContent = "Сохраняю…";
+      try {
+        const response = await fetch("/api/settings", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({settings:collectSettings()})});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось сохранить настройки");
+        state.status.settings = data.settings;
+        $("settingsState").textContent = `Сохранено локально: ${state.status.settings_file || "settings.json"}`;
+        if (showToast) toast("Настройки сохранены на этом компьютере.");
+        updateDailyUsage();
+        return data.settings;
+      } finally {
+        state.settingsSaving = false; $("saveSettings").disabled = false;
+      }
+    }
+    function applySettings(settings, defaultRepo, checkSuggestions, projectContext = "") {
+      const s = settings || {};
+      $("repo").value = s.default_repo || defaultRepo || "";
+      state.projectContextRepo = $("repo").value.trim();
+      $("projectContext").value = projectContext || s.project_contexts?.[state.projectContextRepo] || "";
+      $("checks").value = s.default_checks || (checkSuggestions || []).join("\n");
+      $("profession").value = s.profession || "developer";
+      $("router").value = s.router || "local";
+      $("lane").value = s.lane || "";
+      $("lunaModel").value = s.luna_model || "gpt-6-luna";
+      $("solModel").value = s.sol_model || "gpt-6-sol";
+      $("reviewModel").value = s.review_model || "";
+      $("repairs").value = s.max_repairs ?? 1;
+      $("maxCalls").value = s.max_model_calls ?? 5;
+      $("promptBudget").value = s.prompt_token_budget ?? 16000;
+      $("runBudget").value = s.max_run_tokens ?? 60000;
+      $("dayBudget").value = s.daily_token_budget ?? 120000;
+      $("codexTimeout").value = s.codex_timeout ?? 1800;
+      $("checkTimeout").value = s.check_timeout ?? 300;
+      $("mergePolicy").value = s.merge_policy || "confirm";
+      $("mergeTarget").value = s.merge_target || "local";
+      $("mergeMethod").value = s.merge_method || "squash";
+      $("waitForGithubChecks").checked = s.wait_for_github_checks !== false;
+      $("deleteBranch").checked = s.delete_branch !== false;
+      $("baseBranch").value = s.base_branch || "";
+      $("branchPrefix").value = s.branch_prefix || "ai-orchestrate";
+      $("worktreeRoot").value = s.worktree_root || "";
+      $("saveJournal").checked = s.save_journal !== false;
+      $("usageLogPath").value = s.usage_log_path || "";
+      $("journalPath").value = s.journal_path || "";
+      state.mode = s.mode || "full";
+      document.querySelectorAll(".mode-option").forEach(node => node.classList.toggle("active", node.dataset.mode === state.mode));
+      $("modePill").textContent = state.mode === "full" ? "Полный цикл" : "Бережливый";
+      $("startButton").textContent = state.mode === "full" ? "▶　Запустить полный цикл" : "▶　Запустить бережливый цикл";
+      updateCostPreview();
     }
     async function loadStatus() {
       try {
         const response = await fetch("/api/status", {cache:"no-store"});
-        const data = await response.json(); state.status = data; state.dailyTokens = data.usage_today_tokens;
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Статус недоступен");
+        state.status = data; state.dailyTokens = data.usage_today_tokens;
         updateDailyUsage();
         $("workspaceLabel").textContent = `Рабочая область: ${data.workspace_root}`;
-        $("rootHint").textContent = `внутри ${data.workspace_root}`;
-        $("repo").value = data.default_repo;
+        $("rootHint").textContent = `разрешено внутри ${data.workspace_root}`;
         for (const option of $("lane").options) {
           if (!option.value || !data.models?.[option.value]) continue;
           const [model, effort] = data.models[option.value];
           option.textContent = `${option.value} · ${model} / ${effort}`;
         }
-        $("codexStatus").textContent = data.codex_available ? "Codex доступен" : "Codex не найден";
-        $("codexDot").classList.toggle("warn", !data.codex_available);
+        $("codexStatus").textContent = !data.codex_available ? "Codex CLI не найден" : data.codex_authenticated ? "Codex CLI · вход активен" : "Codex CLI · нужен вход";
+        $("codexDot").classList.toggle("warn", !data.codex_available || !data.codex_authenticated);
+        $("githubStatus").textContent = !data.github_cli_available ? "GitHub CLI gh не найден" : data.github_authenticated ? "GitHub подключён" : "gh установлен · нужен вход";
+        $("githubDot").classList.toggle("warn", !data.github_cli_available || !data.github_authenticated);
         $("jevStatus").textContent = data.jev_available ? "Jev готов" : "Jev без ключа";
         $("jevDot").classList.toggle("warn", !data.jev_available);
         $("jevOption").disabled = !data.jev_available;
+        $("jevMergeOption").disabled = !data.jev_available;
         const select = $("profession"); select.replaceChildren();
         data.professions.forEach(person => { const option = document.createElement("option"); option.value = person.key; option.textContent = person.title; option.title = person.description; select.append(option); });
         const promptTitles = {analyst:"Аналитик", architect:"Архитектор", developer:"Разработчик", bugfixer:"Инженер по багам", frontend:"Frontend / UX-инженер", backend:"Backend-инженер", test_engineer:"Тест-инженер", docs_writer:"Технический писатель", reviewer:"Независимый ревьюер"};
         const promptSelect = $("promptRole"); promptSelect.replaceChildren();
         Object.keys(data.role_prompts || {}).forEach(key => { const option = document.createElement("option"); option.value = key; option.textContent = promptTitles[key] || key; promptSelect.append(option); });
         showRolePrompt();
-        if (data.check_suggestions?.length) $("checks").value = data.check_suggestions.join("\n");
-      } catch (_) { toast("Не удалось подключиться к локальному Python-интерфейсу."); }
+        applySettings(data.settings, data.default_repo, data.check_suggestions, data.project_context || "");
+        $("usageLogPath").placeholder = `По умолчанию: ${data.usage_file || "~/.ai-orchestrate/usage.jsonl"}`;
+        $("journalPath").placeholder = `По умолчанию: ${data.journal_file || "~/.ai-orchestrate/journal.jsonl"}`;
+        state.settingsLoaded = true;
+        $("settingsState").textContent = `Загружено: ${data.settings_file || "локальный settings.json"}`;
+        loadHistory();
+      } catch (error) { toast(`Не удалось загрузить панель: ${error.message}`); $("settingsState").textContent = "Настройки недоступны."; }
+    }
+    async function loadHistory() {
+      try {
+        const response = await fetch("/api/history", {cache:"no-store"});
+        if (!response.ok) return;
+        const data = await response.json(); const root = $("historyList"); root.replaceChildren();
+        if (!data.entries?.length) { const empty = document.createElement("span"); empty.className = "plan-empty"; empty.textContent = "Пока нет записей."; root.append(empty); return; }
+        data.entries.forEach(entry => {
+          const card = document.createElement("div"); card.className = "history-entry";
+          const title = document.createElement("strong"); title.textContent = `${entry.status || "run"} · ${entry.github_url || entry.repo || "задача"}`;
+          const meta = document.createElement("span"); meta.textContent = `${entry.timestamp || ""} · ${entry.branch || "без ветки"} · ${Number(entry.run_tokens || 0).toLocaleString()} токенов · merge: ${entry.merge_status || "нет"}`;
+          card.append(title, meta); root.append(card);
+        });
+      } catch (_) { /* History is optional observability, not a run dependency. */ }
     }
     async function suggestChecks() {
       try {
@@ -700,46 +914,97 @@
         const response = await fetch(`/api/checks?repo=${repo}`); const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Не удалось найти проверки");
         if (!data.checks.length) { toast("Автоматически не нашёл тестовую команду — добавь её вручную."); return; }
-        $("checks").value = data.checks.join("\n"); toast(`Найдены проверки: ${data.checks.join(", ")}`);
+        $("checks").value = data.checks.join("\n"); markSettingsDirty(); toast(`Найдены проверки: ${data.checks.join(", ")}`);
       } catch (error) { toast(error.message); }
+    }
+    async function loadProjectContext() {
+      try {
+        const response = await fetch(`/api/project-context?repo=${encodeURIComponent($("repo").value.trim())}`, {cache:"no-store"});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось загрузить контекст проекта");
+        $("repo").value = data.repo;
+        state.projectContextRepo = data.repo;
+        $("projectContext").value = data.context || "";
+      } catch (error) { $("githubContextNote").textContent = error.message; }
+    }
+    async function loadGithubContext() {
+      try {
+        const repo = encodeURIComponent($("repo").value);
+        const ref = encodeURIComponent($("githubItem").value.trim());
+        if (!ref) throw new Error("Введи #номер или GitHub URL.");
+        $("loadGithubContext").disabled = true; $("githubContextNote").textContent = "Загружаю issue/PR через gh…";
+        const response = await fetch(`/api/github/item?repo=${repo}&ref=${ref}`, {cache:"no-store"});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось загрузить GitHub context");
+        state.githubItem = data.item;
+        $("mergeTarget").value = "github";
+        if (!$("task").value.trim()) $("task").value = data.suggested_task;
+        $("githubContextNote").textContent = `Загружен ${data.item.kind} #${data.item.number}: ${data.item.title}. Текст будет добавлен к задаче как недоверенный контекст.`;
+        markSettingsDirty(); toast(`GitHub context загружен: #${data.item.number}`);
+      } catch (error) { $("githubContextNote").textContent = error.message; toast(error.message); }
+      finally { $("loadGithubContext").disabled = false; }
     }
     async function startRun(event) {
       event.preventDefault();
-      const payload = {
-        repo: $("repo").value,
-        task: $("task").value,
-        checks: $("checks").value,
-        mode: state.mode,
-        profession: $("profession").value,
-        router: $("router").value,
-        lane: $("lane").value || null,
-        max_repairs: Number($("repairs").value),
-        max_model_calls: Number($("maxCalls").value),
-        prompt_token_budget: Number($("promptBudget").value),
-        max_run_tokens: Number($("runBudget").value),
-        daily_token_budget: Number($("dayBudget").value),
-        allow_dirty: $("allowDirty").checked,
-      };
-      $("startButton").disabled = true; $("startButton").textContent = "Отправляю…";
+      if (!$("task").value.trim() && !$("githubItem").value.trim()) { toast("Опиши задачу или укажи GitHub issue/PR."); return; }
+      $("startButton").disabled = true; $("startButton").textContent = "Сохраняю настройки…";
       try {
+        await saveSettings(false);
+        const settings = collectSettings();
+        const payload = {
+          repo: $("repo").value,
+          task: $("task").value,
+          checks: $("checks").value,
+          github_item: $("githubItem").value.trim(),
+          settings,
+        };
+        $("startButton").textContent = "Отправляю задачу…";
         const response = await fetch("/api/runs", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Не удалось запустить задачу");
-        state.jobId = data.id; state.lastEvent = 0; state.calls = 0; state.maxCalls = payload.max_model_calls; state.tokens = 0; state.startAt = Date.now(); state.files.clear(); state.checkMap.clear(); state.polling = false;
+        state.jobId = data.id; state.lastEvent = 0; state.calls = 0; state.maxCalls = settings.max_model_calls; state.tokens = 0; state.startAt = Date.now(); state.files.clear(); state.checkMap.clear(); state.polling = false;
         $("timeline").replaceChildren(); $("eventCount").textContent = "0 событий";
         const checking = document.createElement("div"); checking.className = "plan-empty"; checking.textContent = "Проверки выполняются…"; $("checksList").replaceChildren(checking);
         const findingFiles = document.createElement("span"); findingFiles.className = "plan-empty"; findingFiles.textContent = "Ищу изменения…"; $("filesList").replaceChildren(findingFiles);
-        $("checkCount").textContent = "0"; $("fileCount").textContent = "0"; $("callsMetric").textContent = `0 / ${payload.max_model_calls}`; $("tokensMetric").textContent = "0"; $("timeMetric").textContent = "0с";
-        $("resultBanner").classList.remove("show", "fail"); $("jevCard").classList.toggle("show", payload.router === "jev"); if (payload.router === "jev") showJev({}, "Jev готовится к триажу…"); else $("jevCard").classList.remove("show");
+        $("checkCount").textContent = "0"; $("fileCount").textContent = "0"; $("callsMetric").textContent = `0 / ${settings.max_model_calls}`; $("tokensMetric").textContent = "0"; $("timeMetric").textContent = "0с";
+        $("resultBanner").classList.remove("show", "fail"); $("confirmMergeButton").style.display = "none"; $("discardWorktreeButton").style.display = "none";
+        $("jevCard").classList.toggle("show", settings.router === "jev" || settings.merge_policy === "jev_auto");
+        if (settings.router === "jev" || settings.merge_policy === "jev_auto") showJev({}, "Jev будет участвовать в маршрутизации или финальном решении о слиянии…"); else $("jevCard").classList.remove("show");
         stepIds.forEach(id => setStage(id, "")); activateStage("preflight");
         $("runStatus").textContent = "Подготовка задачи…"; $("startButton").textContent = "Задача выполняется"; $("cancelButton").style.display = "block";
         state.timer = setInterval(poll, 500); await poll();
-      } catch (error) { $("startButton").disabled = false; $("startButton").textContent = "▶　Запустить цикл"; toast(error.message); }
+      } catch (error) {
+        $("startButton").disabled = false; $("startButton").textContent = state.mode === "full" ? "▶　Запустить полный цикл" : "▶　Запустить бережливый цикл";
+        toast(error.message);
+      }
     }
     async function cancelRun() {
       if (!state.jobId) return;
       try { await fetch(`/api/runs/${encodeURIComponent(state.jobId)}/cancel`, {method:"POST"}); toast("Отмена запрошена"); }
       catch (_) { toast("Не удалось запросить отмену"); }
+    }
+    async function confirmMerge() {
+      if (!state.jobId) return;
+      const ok = window.confirm("Подтвердить слияние этой проверенной ветки в выбранную цель? Для GitHub будут выполнены push/создание или обновление PR и merge.");
+      if (!ok) return;
+      $("confirmMergeButton").disabled = true;
+      try {
+        const response = await fetch(`/api/runs/${encodeURIComponent(state.jobId)}/confirm`, {method:"POST"});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось запустить слияние");
+        $("confirmMergeButton").style.display = "none"; $("runStatus").textContent = "Выполняю подтверждённое слияние…";
+        state.timer = setInterval(poll, 500); await poll();
+      } catch (error) { $("confirmMergeButton").disabled = false; toast(error.message); }
+    }
+    async function discardWorktree() {
+      if (!state.jobId || !window.confirm("Удалить изолированную рабочую копию и её ветку? Это удалит неперенесённые изменения.")) return;
+      $("discardWorktreeButton").disabled = true;
+      try {
+        const response = await fetch(`/api/runs/${encodeURIComponent(state.jobId)}/discard`, {method:"POST"});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось удалить worktree");
+        $("discardWorktreeButton").style.display = "none"; state.timer = setInterval(poll, 500); await poll();
+      } catch (error) { $("discardWorktreeButton").disabled = false; toast(error.message); }
     }
     function updateCostPreview() {
       const repairs = Math.max(0, Number($("repairs").value) || 0);
@@ -759,7 +1024,9 @@
       lines.push($("router").value === "jev"
         ? "Jev добавит 1 отдельный внешний запрос для триажа; он не входит в лимит Codex и его токеновый ledger."
         : "Локальный триаж бесплатный и не вызывает модель.");
-      lines.push("Точная сумма в € зависит от тарифов провайдера и здесь не рассчитывается; фактические токены видны по этапам. Лимиты останавливают следующий вызов, но не текущий.");
+      if ($("mergePolicy").value === "jev_auto") lines.push("Финальный Jev-gate отправит Jev отдельный запрос с ограниченным diff, проверками и итогом ревью; автоматическое слияние возможно только при APPROVE.");
+      if ($("mergeTarget").value === "github") lines.push("Подтверждение/APPROVE Jev разрешает push и GitHub PR merge; обязательные GitHub checks будут ожидаться, если включена настройка ниже.");
+      lines.push("Точная сумма в € зависит от тарифов провайдера и здесь не рассчитывается; фактические токены Codex видны по этапам. Лимиты останавливают следующий вызов, но не текущий.");
       preview.replaceChildren();
       const title = document.createElement("strong"); title.textContent = "Расход до запуска";
       const body = document.createElement("span"); body.textContent = lines.join(" ");
@@ -777,7 +1044,11 @@
       $("startButton").textContent = mode === "full" ? "▶　Запустить полный цикл" : "▶　Запустить бережливый цикл";
       if (mode === "quick" && Number($("maxCalls").value) === 5) { $("maxCalls").value = 1; $("repairs").value = 0; }
       else if (mode === "full" && Number($("maxCalls").value) === 1) { $("maxCalls").value = 5; $("repairs").value = 1; }
-      updateCostPreview();
+      if (mode === "quick" && $("mergePolicy").value === "jev_auto") {
+        $("mergePolicy").value = "confirm";
+        toast("Автослияние Jev отключено: ему нужен полный цикл с независимым ревью.");
+      }
+      updateCostPreview(); markSettingsDirty();
     }
     document.querySelectorAll(".mode-option").forEach(node => {
       node.addEventListener("click", () => setMode(node.dataset.mode));
@@ -785,26 +1056,47 @@
     });
     $("runForm").addEventListener("submit", startRun);
     $("cancelButton").addEventListener("click", cancelRun);
+    $("confirmMergeButton").addEventListener("click", confirmMerge);
+    $("discardWorktreeButton").addEventListener("click", discardWorktree);
+    $("saveSettings").addEventListener("click", () => saveSettings(true).catch(error => toast(error.message)));
     $("promptRole").addEventListener("change", showRolePrompt);
     $("suggestChecks").addEventListener("click", suggestChecks);
     $("checkRepo").addEventListener("click", suggestChecks);
-    $("repo").addEventListener("change", () => { if (!$("checks").value.trim()) suggestChecks(); });
+    $("loadGithubContext").addEventListener("click", loadGithubContext);
+    $("githubItem").addEventListener("input", () => { state.githubItem = null; });
+    $("repo").addEventListener("change", () => { if (!$("checks").value.trim()) suggestChecks(); loadProjectContext(); markSettingsDirty(); });
+    $("projectContext").addEventListener("change", () => {
+      state.projectContextRepo = $("repo").value.trim();
+      saveSettings(false).catch(error => { $("settingsState").textContent = `Не сохранено: ${error.message}`; });
+    });
     $("router").addEventListener("change", () => {
       if ($("router").value === "jev" && $("lane").value) {
         $("lane").value = "";
         toast("Jev выберет полосу сам; ручной выбор отключён.");
       }
-      updateCostPreview();
+      updateCostPreview(); markSettingsDirty();
     });
     $("lane").addEventListener("change", () => {
       if ($("lane").value && $("router").value === "jev") {
         $("router").value = "local";
         toast("Для ручной полосы включён бесплатный локальный роутер.");
       }
-      updateCostPreview();
+      updateCostPreview(); markSettingsDirty();
+    });
+    $("mergePolicy").addEventListener("change", () => {
+      if ($("mergePolicy").value === "jev_auto" && state.mode !== "full") {
+        setMode("full");
+      }
+      updateCostPreview(); markSettingsDirty();
+    });
+    $("mergeTarget").addEventListener("change", () => { updateCostPreview(); markSettingsDirty(); });
+    ["repairs", "maxCalls", "mergeMethod", "baseBranch", "branchPrefix", "worktreeRoot", "codexTimeout", "checkTimeout", "lunaModel", "solModel", "reviewModel", "runBudget", "promptBudget", "waitForGithubChecks", "deleteBranch", "saveJournal", "usageLogPath", "journalPath", "profession"].forEach(id => {
+      $(id).addEventListener("change", () => { updateCostPreview(); markSettingsDirty(); });
     });
     ["repairs", "maxCalls"].forEach(id => $(id).addEventListener("input", updateCostPreview));
     $("dayBudget").addEventListener("input", updateDailyUsage);
+    $("dayBudget").addEventListener("change", markSettingsDirty);
+    $("checks").addEventListener("change", markSettingsDirty);
     setInterval(() => { if (state.startAt && state.timer) $("timeMetric").textContent = formatTime((Date.now() - state.startAt) / 1000); }, 1000);
     setOrchestraScene("idle");
     updateCostPreview();

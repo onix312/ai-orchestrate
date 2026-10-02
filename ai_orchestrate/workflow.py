@@ -38,6 +38,9 @@ class WorkflowRequest:
     profession: str = "developer"
     router: str = "local"
     lane: str | None = None
+    luna_model: str = ""
+    sol_model: str = ""
+    review_model: str = ""
     max_repairs: int = 1
     max_model_calls: int = 5
     prompt_token_budget: int = 16000
@@ -75,7 +78,11 @@ def _validate_request(request: WorkflowRequest) -> tuple[Path, list[str]]:
         raise OrchestratorError("Роутер должен быть local или jev.")
     if request.profession not in {item.key for item in PROFESSIONS}:
         raise OrchestratorError("Выбрана неизвестная профессия.")
-    if request.lane and request.lane not in configured_lanes():
+    model_lanes = configured_lanes(
+        luna_model=request.luna_model or None,
+        sol_model=request.sol_model or None,
+    )
+    if request.lane and request.lane not in model_lanes:
         raise OrchestratorError("Выбрана неизвестная полоса модели.")
     if request.lane and request.router == "jev":
         raise OrchestratorError("Выбери либо Jev-роутер, либо ручную полосу модели.")
@@ -180,13 +187,13 @@ def _format_codex_event(event: dict[str, Any]) -> tuple[str, str, dict[str, Any]
     return "codex.activity", f"Codex: {item_type}", {"status": item.get("status", "")}
 
 
-def _review_model(writer_model: str) -> str:
+def _review_model(writer_model: str, *, requested: str = "", luna_model: str = "", sol_model: str = "") -> str:
     import os
 
-    requested = os.environ.get("AI_ORCHESTRATE_REVIEW_MODEL")
-    if requested:
-        return requested
-    lanes = configured_lanes()
+    configured = requested or os.environ.get("AI_ORCHESTRATE_REVIEW_MODEL")
+    if configured:
+        return configured
+    lanes = configured_lanes(luna_model=luna_model or None, sol_model=sol_model or None)
     sol, luna = lanes["ESCALATE"][0], lanes["SMALL"][0]
     return sol if writer_model != sol else luna
 
@@ -222,6 +229,7 @@ def run_workflow(
         request.task,
         lane=request.lane,
         router=request.router,
+        models={"luna_model": request.luna_model, "sol_model": request.sol_model},
         on_event=lambda name, data: _emit(
             emit,
             f"router.{name}",
@@ -394,7 +402,12 @@ def run_workflow(
             _emit(emit, "stage.started", "review", "Ревьюер независимо проверяет diff и результаты тестов.",
                   role="Ревьюер")
             diff, status = git_snapshot(repo, max_chars=9000)
-            reviewer_model = _review_model(model)
+            reviewer_model = _review_model(
+                model,
+                requested=request.review_model,
+                luna_model=request.luna_model,
+                sol_model=request.sol_model,
+            )
             review_text = build_reviewer_prompt(request.task, plan, diff, status, all_checks)
             review_result = model_call("Ревьюер", "review", review_text,
                                        call_model=reviewer_model, call_effort="low", sandbox="read-only")
@@ -430,7 +443,10 @@ def run_workflow(
         next_name = next_lane_name(lane_name)
         if next_name is not None:
             lane_name = next_name
-            model, effort = configured_lanes()[lane_name]
+            model, effort = configured_lanes(
+                luna_model=request.luna_model or None,
+                sol_model=request.sol_model or None,
+            )[lane_name]
         repair_count += 1
         _emit(emit, "stage.retry", "implementation",
               f"Начинаю исправление {repair_count}/{request.max_repairs} с контекстом только по найденным проблемам.",

@@ -77,10 +77,14 @@ def append_usage(
     }
     encoded = (json.dumps(entry, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         # O_APPEND keeps concurrent short JSONL records from overwriting each other.
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         try:
+            try:
+                os.fchmod(fd, 0o600)
+            except (AttributeError, OSError):
+                pass
             remaining = memoryview(encoded)
             while remaining:
                 written = os.write(fd, remaining)

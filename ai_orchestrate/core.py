@@ -62,10 +62,10 @@ class CodexResult:
     cancelled: bool = False
 
 
-def configured_lanes() -> dict[str, tuple[str, str]]:
-    """Resolve provider-specific model aliases without making a network call."""
-    luna = os.environ.get("AI_ORCHESTRATE_LUNA_MODEL", "gpt-6-luna")
-    sol = os.environ.get("AI_ORCHESTRATE_SOL_MODEL", "gpt-6-sol")
+def configured_lanes(*, luna_model: str | None = None, sol_model: str | None = None) -> dict[str, tuple[str, str]]:
+    """Resolve model aliases without making a network call; UI settings override environment defaults."""
+    luna = luna_model or os.environ.get("AI_ORCHESTRATE_LUNA_MODEL", "gpt-6-luna")
+    sol = sol_model or os.environ.get("AI_ORCHESTRATE_SOL_MODEL", "gpt-6-sol")
     return {
         "SMALL": (luna, "low"),
         "MEDIUM": (luna, "medium"),
@@ -112,12 +112,17 @@ def route_with_lane(
     router: str = "local",
     dry_run: bool = False,
     on_event: Callable[[str, dict[str, Any]], None] | None = None,
+    models: dict[str, str] | None = None,
 ) -> tuple[str, tuple[str, str]]:
     """Return both the lane name and its model/effort pair.
 
     Jev is deliberately opt-in: the local router avoids an extra paid model request.
     """
-    lanes = configured_lanes()
+    model_options = models or {}
+    lanes = configured_lanes(
+        luna_model=model_options.get("luna_model"),
+        sol_model=model_options.get("sol_model"),
+    )
     if lane is not None:
         if lane not in lanes:
             raise OrchestratorError(f"Unknown lane {lane!r}; choose one of {', '.join(lanes)}.")
@@ -145,9 +150,9 @@ def route_with_lane(
 
 
 def route(task: str, *, lane: str | None = None, dry_run: bool = False,
-          router: str = "local") -> tuple[str, str]:
+          router: str = "local", models: dict[str, str] | None = None) -> tuple[str, str]:
     """Backward-compatible convenience wrapper returning just model and effort."""
-    return route_with_lane(task, lane=lane, router=router, dry_run=dry_run)[1]
+    return route_with_lane(task, lane=lane, router=router, dry_run=dry_run, models=models)[1]
 
 
 def jev_choice(
@@ -588,10 +593,16 @@ def run_checks(
     return results
 
 
-def git_snapshot(repo: Path, *, max_chars: int = 16000) -> tuple[str, str]:
-    """Return a bounded diff/status snapshot including staged and untracked changes."""
+def git_snapshot(repo: Path, *, max_chars: int = 16000, base: str | None = None) -> tuple[str, str]:
+    """Return a bounded diff/status snapshot including staged and untracked changes.
+
+    When ``base`` is provided, compare committed work against that immutable revision;
+    this is needed by the final Jev gate after changes have been committed in a worktree.
+    """
+    diff_args = ["git", "diff", "--no-ext-diff", "--unified=2"]
+    diff_args.append(f"{base}..HEAD" if base else "HEAD")
     diff = subprocess.run(
-        ["git", "diff", "HEAD", "--no-ext-diff", "--unified=2"],
+        diff_args,
         cwd=repo, capture_output=True, text=True, check=True,
     ).stdout
     status = subprocess.run(

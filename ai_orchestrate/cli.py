@@ -336,6 +336,7 @@ def build_parser() -> argparse.ArgumentParser:
     ui.add_argument("--port", type=int, default=8765)
     ui.add_argument("--workspace-root", help="Restrict selectable projects to this directory (default: current directory)")
     ui.add_argument("--usage-log", help="Usage JSONL path (default: ~/.ai-orchestrate/usage.jsonl)")
+    ui.add_argument("--settings-file", help="Persistent UI settings JSON path (default: ~/.ai-orchestrate/settings.json)")
 
     run = sub.add_parser("run", help="Route and run one task")
     run.add_argument("task", help="Task prompt sent to Codex")
@@ -387,7 +388,8 @@ def main(argv: list[str] | None = None) -> int:
         try:
             from .web import serve
             root = Path(args.workspace_root).expanduser() if args.workspace_root else Path.cwd()
-            return serve(args.host, args.port, root, default_usage_path(args.usage_log))
+            settings_path = Path(args.settings_file).expanduser() if args.settings_file else None
+            return serve(args.host, args.port, root, default_usage_path(args.usage_log), settings_path)
         except (OrchestratorError, OSError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
