@@ -366,6 +366,19 @@ def _notify_parsed_text(text: str, on_event: Callable[[dict[str, Any]], None] | 
     return parser
 
 
+def _codex_command() -> list[str]:
+    """Resolve Codex to its real executable and adapt Windows batch shims for CreateProcess."""
+    executable = shutil.which("codex")
+    if not executable:
+        raise OrchestratorError("Codex CLI was not found on PATH.")
+    if os.name == "nt" and executable.lower().endswith((".cmd", ".bat")):
+        # CreateProcess cannot launch .cmd/.bat files directly. Hand the shim to cmd.exe;
+        # keep the resolved shim path as an argument so the working directory/PATH do not
+        # decide which Codex installation is invoked after the initial lookup.
+        return [os.environ.get("COMSPEC") or "cmd.exe", "/d", "/s", "/c", executable]
+    return [executable]
+
+
 def run_codex(
     repo: Path,
     task: str,
@@ -387,8 +400,10 @@ def run_codex(
         raise OrchestratorError("Codex timeout must be positive.")
     if cancel_event is not None and cancel_event.is_set():
         return CodexResult(130, cancelled=True)
+    command_prefix = _codex_command()
+    codex_executable = command_prefix[-1]
     command = [
-        "codex", "exec", "--json", "--ephemeral", "-m", model,
+        *command_prefix, "exec", "--json", "--ephemeral", "-m", model,
         "-c", f'model_reasoning_effort="{effort}"',
         "-c", 'model_verbosity="low"',
         "-s", sandbox, "-C", str(repo), "-",
@@ -411,7 +426,9 @@ def run_codex(
             parser = _notify_parsed_text(_as_text(exc.stdout), on_event)
             return _codex_result(parser, 124, _as_text(exc.stderr))
         except OSError as exc:
-            raise OrchestratorError(f"Could not start Codex CLI ({type(exc).__name__}).") from exc
+            raise OrchestratorError(
+                f"Could not start Codex CLI at {codex_executable!r} ({type(exc).__name__})."
+            ) from exc
         parser = _notify_parsed_text(_as_text(getattr(proc, "stdout", "")), on_event)
         return _codex_result(parser, proc.returncode, _as_text(getattr(proc, "stderr", "")))
 
@@ -430,7 +447,9 @@ def run_codex(
             **process_options,
         )
     except OSError as exc:
-        raise OrchestratorError(f"Could not start Codex CLI ({type(exc).__name__}).") from exc
+        raise OrchestratorError(
+            f"Could not start Codex CLI at {codex_executable!r} ({type(exc).__name__})."
+        ) from exc
 
     assert proc.stdin is not None and proc.stdout is not None and proc.stderr is not None
     lines: queue.Queue[str | None] = queue.Queue()
