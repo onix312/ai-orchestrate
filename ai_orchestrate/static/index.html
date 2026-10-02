@@ -1,0 +1,1106 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>ai-orchestrate — локальный AI-цех</title>
+  <style>
+    :root {
+      --bg: #0b1017;
+      --panel: #111923;
+      --panel-2: #151f2a;
+      --line: #263341;
+      --text: #edf3f8;
+      --muted: #91a1b0;
+      --accent: #83f0c1;
+      --accent-2: #87a6ff;
+      --amber: #f4c779;
+      --red: #ff8a91;
+      --radius: 17px;
+      --shadow: 0 16px 50px rgba(0,0,0,.22);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; background:
+        radial-gradient(900px 500px at 86% -10%, rgba(72,110,163,.18), transparent 64%),
+        radial-gradient(700px 440px at -10% 4%, rgba(88,182,145,.10), transparent 55%), var(--bg);
+      color: var(--text); font: 14px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    button, input, textarea, select { font: inherit; }
+    button { cursor: pointer; }
+    .shell { max-width: 1540px; margin: 0 auto; padding: 22px 26px 32px; }
+    .topbar { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom:22px; }
+    .brand { display:flex; align-items:center; gap:12px; }
+    .brand-mark { width:38px; height:38px; display:grid; place-items:center; border-radius:12px; background:linear-gradient(140deg,#8ff2c8,#73a4ff); color:#09131a; font-weight:900; letter-spacing:-2px; box-shadow:0 7px 24px rgba(131,240,193,.18); }
+    .brand-name { font-weight:760; letter-spacing:-.4px; font-size:16px; }
+    .brand-sub { color:var(--muted); font-size:11px; margin-top:1px; }
+    .top-right { display:flex; align-items:center; gap:10px; }
+    .pill { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--line); border-radius:999px; padding:7px 11px; color:#b9c6d2; background:rgba(17,25,35,.72); font-size:11px; white-space:nowrap; }
+    .dot { width:7px; height:7px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 4px rgba(131,240,193,.08); }
+    .dot.warn { background:var(--amber); box-shadow:0 0 0 4px rgba(244,199,121,.08); }
+    .top-note { color:var(--muted); font-size:11px; }
+    .layout { display:grid; grid-template-columns:minmax(330px, 405px) minmax(0,1fr); gap:20px; align-items:start; }
+    .card { background:linear-gradient(180deg,rgba(19,29,40,.96),rgba(15,23,32,.96)); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); }
+    .composer { padding:20px; position:sticky; top:16px; }
+    .section-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:16px; }
+    h1,h2,h3,p { margin-top:0; }
+    h1 { font-size:20px; letter-spacing:-.7px; line-height:1.2; margin:0 0 6px; }
+    h2 { font-size:16px; letter-spacing:-.3px; margin:0; }
+    h3 { font-size:13px; margin:0; }
+    .muted { color:var(--muted); }
+    .tiny { font-size:11px; }
+    .mode-tag { color:#9feaca; border:1px solid rgba(131,240,193,.24); background:rgba(131,240,193,.06); border-radius:8px; padding:4px 8px; font-size:10px; font-weight:700; white-space:nowrap; }
+    .field { margin:13px 0 0; }
+    .field label, .label-row { display:flex; align-items:center; justify-content:space-between; gap:8px; color:#cad4de; font-size:11px; font-weight:650; margin-bottom:6px; }
+    .field-hint { font-size:10px; color:#788998; font-weight:400; }
+    input[type="text"], input[type="number"], textarea, select {
+      width:100%; border:1px solid #2a3948; border-radius:10px; padding:10px 11px; outline:none;
+      background:#0d151e; color:var(--text); transition:border-color .15s, box-shadow .15s;
+    }
+    input:focus, textarea:focus, select:focus { border-color:#6ccda9; box-shadow:0 0 0 3px rgba(131,240,193,.09); }
+    textarea { resize:vertical; min-height:84px; line-height:1.45; }
+    #task { min-height:133px; }
+    #checks { min-height:70px; font:12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .repo-row, .context-row { display:flex; gap:7px; }
+    .repo-row input, .context-row input { min-width:0; }
+    .icon-button { flex:0 0 40px; border:1px solid var(--line); border-radius:10px; color:#d2dde7; background:#182330; }
+    .icon-button:hover { border-color:#60778d; }
+    .context-row button, .secondary-button { border:1px solid #385148; border-radius:9px; padding:8px 10px; color:#a9efd0; background:rgba(66,125,103,.13); font-size:10px; font-weight:700; white-space:nowrap; }
+    .context-note, .settings-state { display:block; min-height:16px; margin-top:5px; color:#8fa1af; font-size:10px; overflow-wrap:anywhere; }
+    .settings-save-row { display:flex; align-items:center; gap:10px; margin-top:14px; }
+    .settings-save-row .secondary-button { flex:0 0 auto; padding:9px 12px; }
+    .settings-save-row .settings-state { margin:0; }
+    .action-row { display:flex; flex-wrap:wrap; gap:8px; margin-top:11px; }
+    .action-row button { border:1px solid #54705f; border-radius:9px; padding:9px 12px; color:#d4f6e7; background:#18342b; font-size:11px; font-weight:750; }
+    .action-row button:hover { filter:brightness(1.12); }
+    .action-row button.danger { border-color:#714149; color:#ffc2c5; background:#321e24; }
+    .history-list { display:grid; gap:7px; max-height:230px; overflow:auto; }
+    .history-entry { border:1px solid #263442; border-radius:9px; padding:8px 9px; background:#0d151d; }
+    .history-entry strong { display:block; color:#d1dce5; font-size:10px; overflow-wrap:anywhere; }
+    .history-entry span { display:block; margin-top:3px; color:#8292a0; font:9px/1.45 ui-monospace,monospace; overflow-wrap:anywhere; }
+    .segmented { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .mode-option { padding:11px 10px; background:#0d151e; border:1px solid #293745; border-radius:12px; cursor:pointer; min-height:78px; }
+    .mode-option.active { border-color:rgba(131,240,193,.7); background:linear-gradient(145deg,rgba(131,240,193,.10),rgba(20,34,45,.8)); box-shadow:inset 0 0 0 1px rgba(131,240,193,.12); }
+    .mode-option strong { display:block; font-size:12px; margin-bottom:2px; }
+    .mode-option span { color:var(--muted); font-size:10px; line-height:1.35; display:block; }
+    .mode-option em { color:var(--accent); font-style:normal; font-size:10px; display:inline-block; margin-top:6px; }
+    .cost-preview { margin-top:9px; padding:9px 10px; border:1px solid #2b3948; border-radius:9px; background:rgba(8,14,20,.36); color:#aab8c5; font-size:10px; line-height:1.5; }
+    .cost-preview strong { display:block; margin-bottom:2px; color:#d9e4eb; font-size:10px; }
+    .cost-preview.warn { border-color:#5a4934; color:#e3c594; }
+    .two-col { display:grid; grid-template-columns:1fr 1fr; gap:9px; }
+    .limits { margin-top:13px; border:1px solid #253340; border-radius:11px; background:rgba(7,13,19,.24); }
+    .limits summary { padding:9px 11px; color:#c5d0da; cursor:pointer; list-style:none; font-size:11px; font-weight:650; }
+    .limits summary::-webkit-details-marker { display:none; }
+    .limits summary::after { content:"＋"; float:right; color:var(--muted); }
+    .limits[open] summary::after { content:"−"; }
+    .limits-inner { padding:0 11px 11px; }
+    .prompt-body { max-height:220px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; margin:8px 0 0; padding:9px; border:1px solid #263442; border-radius:8px; background:#0b121a; color:#b7c5d0; font:10px/1.5 ui-monospace,monospace; }
+    .toggle-row { display:flex; align-items:center; gap:8px; font-size:11px; color:#bfcbd6; margin-top:12px; }
+    input[type="checkbox"] { accent-color:#74dbb1; width:15px; height:15px; }
+    .primary { width:100%; border:0; border-radius:11px; margin-top:16px; padding:12px 15px; background:linear-gradient(110deg,#8bf0c3,#8caeff); color:#0a141b; font-weight:800; box-shadow:0 10px 24px rgba(118,203,179,.13); transition:transform .15s, filter .15s; }
+    .primary:hover { transform:translateY(-1px); filter:brightness(1.04); }
+    .primary:disabled { opacity:.45; cursor:not-allowed; transform:none; }
+    .cancel { width:100%; border:1px solid #613a42; border-radius:10px; padding:10px; color:#ffb2b7; background:rgba(96,34,43,.19); margin-top:8px; display:none; }
+    .footnote { color:#758493; font-size:10px; margin:10px 2px 0; line-height:1.45; }
+
+    .right { min-width:0; }
+    .hero { padding:21px 23px; display:flex; justify-content:space-between; gap:20px; align-items:center; overflow:hidden; position:relative; }
+    .hero:after { content:""; position:absolute; width:220px; height:220px; right:-48px; top:-105px; border:1px solid rgba(131,240,193,.09); border-radius:50%; box-shadow:0 0 0 28px rgba(131,240,193,.025),0 0 0 58px rgba(131,240,193,.018); pointer-events:none; }
+    .hero-kicker { color:var(--accent); text-transform:uppercase; letter-spacing:1.2px; font-size:9px; font-weight:800; margin-bottom:7px; }
+    .hero h1 { font-size:22px; }
+    .hero p { color:var(--muted); font-size:12px; margin:0; max-width:650px; }
+    .hero-metrics { display:flex; gap:8px; z-index:1; }
+    .metric { border:1px solid #2a3948; border-radius:12px; padding:9px 12px; min-width:91px; background:rgba(9,15,22,.48); }
+    .metric small { color:var(--muted); display:block; font-size:9px; text-transform:uppercase; letter-spacing:.6px; }
+    .metric strong { display:block; font-size:16px; margin-top:2px; letter-spacing:-.4px; }
+    .workflow-card { padding:18px 20px 16px; margin-top:15px; }
+    .workflow-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
+    .status-text { color:var(--muted); font-size:11px; }
+    .steps { display:grid; grid-template-columns:repeat(7,minmax(82px,1fr)); gap:6px; }
+    .step { min-width:0; padding:9px 9px 8px; border:1px solid #24313e; background:rgba(9,15,22,.33); border-radius:10px; position:relative; opacity:.55; }
+    .step.active { opacity:1; border-color:rgba(131,240,193,.55); background:rgba(87,177,143,.07); }
+    .step.done { opacity:.94; border-color:#355448; }
+    .step.error { opacity:1; border-color:#78474e; }
+    .step .num { color:#718292; font:10px ui-monospace,monospace; }
+    .step strong { display:block; font-size:10px; margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .step i { display:none; position:absolute; right:8px; top:8px; width:6px; height:6px; border-radius:50%; background:var(--accent); }
+    .step.active i { display:block; animation:pulse 1.4s infinite; }
+    @keyframes pulse { 50% { box-shadow:0 0 0 5px rgba(131,240,193,.08); opacity:.5; } }
+    .content-grid { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(270px,.75fr); gap:15px; margin-top:15px; }
+    .panel { padding:17px 19px; min-width:0; }
+    .panel-title { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:12px; }
+    .panel-title h2 { font-size:14px; }
+    .counter { color:#9eacb9; border:1px solid #2c3b48; padding:3px 7px; border-radius:7px; font:10px ui-monospace,monospace; }
+    .orchestra-scene { margin-top:14px; overflow:hidden; border-color:#33434f; background:linear-gradient(125deg,rgba(26,39,48,.97),rgba(13,21,29,.98)); }
+    .orchestra-head { display:flex; justify-content:space-between; align-items:flex-start; gap:15px; padding:16px 19px 0; }
+    .orchestra-kicker { color:#8fe3c0; text-transform:uppercase; letter-spacing:1.2px; font-size:8px; font-weight:800; margin-bottom:4px; }
+    .orchestra-head h2 { font-size:14px; margin:0 0 3px; }
+    .orchestra-action { color:#9caebb; font-size:10px; }
+    .orchestra-state { display:flex; align-items:center; gap:7px; border:1px solid #2d4146; border-radius:999px; background:rgba(10,18,22,.55); padding:6px 9px; color:#a7c6b9; font:8px ui-monospace,monospace; white-space:nowrap; }
+    .orchestra-led { width:6px; height:6px; border-radius:50%; background:#7ee1b6; box-shadow:0 0 0 3px rgba(126,225,182,.09); }
+    .orchestra-scene[data-scene="idle"] .orchestra-led { background:#8497a5; box-shadow:none; }
+    .orchestra-scene[data-scene="error"] .orchestra-led { background:#ff8a91; box-shadow:0 0 0 3px rgba(255,138,145,.10); }
+    .orchestra-stage { position:relative; margin:9px 13px 13px; border:1px solid rgba(83,111,119,.24); border-radius:13px; overflow:hidden; background:radial-gradient(ellipse at 20% 30%,rgba(67,147,133,.15),transparent 35%),radial-gradient(ellipse at 78% 42%,rgba(79,123,166,.16),transparent 33%),#0b1219; }
+    .orchestra-svg { display:block; width:100%; height:auto; max-height:205px; }
+    .orchestra-svg .music-staff { stroke:#40525d; stroke-width:1; opacity:.38; }
+    .orchestra-svg .music-note { fill:#91ebc3; font:22px Georgia,serif; opacity:.42; }
+    .orchestra-svg .jev-coat { fill:url(#jevCoat); stroke:#78cbb0; stroke-width:1.4; }
+    .orchestra-svg .jev-face { fill:#f1c9a6; stroke:#9f755d; stroke-width:1.2; }
+    .orchestra-svg .jev-hair { fill:#273342; }
+    .orchestra-svg .jev-eye { fill:#18222b; }
+    .orchestra-svg .monitor-frame { fill:#26333c; stroke:#607983; stroke-width:1.5; }
+    .orchestra-svg .monitor-screen { fill:#0c1a1d; stroke:#4b9c87; stroke-width:1.2; }
+    .orchestra-svg .code-line { fill:#78d4ad; opacity:.72; }
+    .orchestra-svg .code-line.blue { fill:#84aaff; }
+    .orchestra-svg .code-line.amber { fill:#e7be79; }
+    .orchestra-svg .podium { fill:#233440; stroke:#5e7d83; stroke-width:1.4; }
+    .orchestra-svg .label { fill:#93a8b2; font:700 10px ui-monospace,monospace; letter-spacing:2px; }
+    .orchestra-svg .baton { transform-box:fill-box; transform-origin:left bottom; animation:baton-idle 2.2s ease-in-out infinite; }
+    .orchestra-svg .baton-stick { stroke:#f1ca79; stroke-width:3; stroke-linecap:round; }
+    .orchestra-svg .codex-glow { fill:#72e0b3; opacity:.05; transition:opacity .3s; }
+    .orchestra-svg .test-stamp { opacity:0; transform:scale(.5); transform-box:view-box; transform-origin:776px 148px; transition:opacity .25s,transform .25s; }
+    .orchestra-svg .review-glass { opacity:0; transform:translate(0,0); transition:opacity .25s; }
+    .orchestra-svg .final-spark { opacity:0; }
+    .orchestra-scene[data-scene="routing"] .baton,
+    .orchestra-scene[data-scene="planning"] .baton,
+    .orchestra-scene[data-scene="implementation"] .baton,
+    .orchestra-scene[data-scene="testing"] .baton,
+    .orchestra-scene[data-scene="review"] .baton { animation:baton-beat .82s ease-in-out infinite; }
+    .orchestra-scene[data-scene="routing"] .jev-puppet { animation:conductor-bob 1.3s ease-in-out infinite; }
+    .orchestra-scene[data-scene="implementation"] .codex-glow { opacity:.4; }
+    .orchestra-scene[data-scene="implementation"] .code-line { animation:code-blink .75s steps(2,end) infinite alternate; }
+    .orchestra-scene[data-scene="implementation"] .code-line:nth-of-type(2n) { animation-delay:.23s; }
+    .orchestra-scene[data-scene="testing"] .test-stamp { opacity:1; transform:scale(1); }
+    .orchestra-scene[data-scene="review"] .review-glass { opacity:1; animation:review-scan 2.2s ease-in-out infinite; }
+    .orchestra-scene[data-scene="final"] .final-spark { opacity:1; animation:finale 1.2s ease-in-out infinite alternate; }
+    .orchestra-scene[data-scene="error"] .music-note { fill:#ff9c94; opacity:.2; }
+    .orchestra-caption { display:flex; align-items:center; gap:8px; padding:0 12px 10px; color:#92a3af; font-size:9px; }
+    .orchestra-caption span { flex:0 0 auto; color:#7c8d99; font:700 8px ui-monospace,monospace; letter-spacing:.6px; }
+    .orchestra-caption b { min-width:0; color:#b9c9d1; font-weight:550; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    @keyframes baton-idle { 0%,100% { transform:rotate(-3deg); } 50% { transform:rotate(5deg); } }
+    @keyframes baton-beat { 0%,100% { transform:rotate(-12deg); } 40% { transform:rotate(18deg); } 68% { transform:rotate(-4deg); } }
+    @keyframes conductor-bob { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-2px); } }
+    @keyframes code-blink { from { opacity:.28; } to { opacity:1; } }
+    @keyframes review-scan { 0%,100% { transform:translate(0,0); } 50% { transform:translate(-20px,6px); } }
+    @keyframes finale { from { transform:translateY(2px) rotate(-8deg); } to { transform:translateY(-8px) rotate(10deg); } }
+    .orchestra-scene[data-scene="idle"] .baton { animation-duration:3.5s; }
+    @media (prefers-reduced-motion:reduce) { .orchestra-scene *, .orchestra-scene *::before, .orchestra-scene *::after { animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; } }
+    .jev-card { margin-top:14px; padding:16px 18px; display:none; border-color:#37486a; background:linear-gradient(120deg,rgba(61,78,123,.16),rgba(16,25,35,.96)); }
+    .jev-card.show { display:block; }
+    .jev-top { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .jev-title { display:flex; align-items:center; gap:9px; }
+    .jev-icon { width:26px; height:26px; display:grid; place-items:center; border-radius:8px; color:#a9c0ff; background:rgba(135,166,255,.13); font-weight:800; }
+    .jev-choice { font-size:12px; color:#dae4ff; }
+    .jev-confidence { font:11px ui-monospace,monospace; color:#a9c0ff; }
+    .probabilities { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:13px; }
+    .prob { font-size:9px; color:#a3b0bf; }
+    .prob span { display:flex; justify-content:space-between; gap:3px; margin-bottom:4px; }
+    .bar { height:4px; border-radius:99px; background:#202c3b; overflow:hidden; }
+    .bar i { display:block; height:100%; background:linear-gradient(90deg,#87a6ff,#8de2ca); border-radius:99px; width:0; }
+    .jev-disclaimer { margin-top:11px; font-size:9px; color:#8492a4; }
+    .timeline { height:435px; overflow:auto; padding-right:6px; }
+    .empty { display:grid; place-items:center; text-align:center; min-height:310px; color:#788896; padding:25px; }
+    .empty-icon { width:46px; height:46px; border:1px solid #2b3a48; border-radius:14px; display:grid; place-items:center; margin:0 auto 12px; color:#8fe3c0; font-size:19px; background:rgba(131,240,193,.05); }
+    .empty strong { display:block; color:#b9c5ce; font-size:12px; margin-bottom:5px; }
+    .empty span { font-size:11px; max-width:270px; }
+    .event { position:relative; display:grid; grid-template-columns:24px minmax(0,1fr); gap:9px; padding:0 0 14px; }
+    .event:not(:last-child):before { content:""; position:absolute; left:11px; top:23px; bottom:0; width:1px; background:#263544; }
+    .event-icon { z-index:1; width:23px; height:23px; display:grid; place-items:center; border-radius:7px; color:#a9c1d5; border:1px solid #2c3d4d; background:#131d28; font-size:10px; }
+    .event-icon.good { color:var(--accent); border-color:#355a4c; }
+    .event-icon.warn { color:var(--amber); border-color:#594a35; }
+    .event-icon.bad { color:var(--red); border-color:#633d45; }
+    .event-main { min-width:0; padding-top:2px; }
+    .event-line { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+    .event-title { font-size:11px; color:#d5dfe7; font-weight:650; overflow-wrap:anywhere; }
+    .event-time { flex:0 0 auto; color:#71808e; font:9px ui-monospace,monospace; }
+    .event-meta { color:#8191a0; font-size:10px; margin-top:3px; white-space:pre-wrap; overflow-wrap:anywhere; }
+    .event-meta pre { white-space:pre-wrap; color:#aebdca; background:#0b121a; border:1px solid #23313e; border-radius:8px; padding:8px; max-height:130px; overflow:auto; font:10px/1.45 ui-monospace,monospace; }
+    .event-details { margin-top:5px; color:#93a4b2; font-size:10px; }
+    .event-details summary { cursor:pointer; color:#9feaca; }
+    .github-link { display:inline-block; margin-top:5px; color:#9feaca; font-size:10px; text-decoration:none; }
+    .github-link:hover { text-decoration:underline; }
+    .event-details pre { margin:5px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; color:#b8c6d1; background:#0b121a; border:1px solid #23313e; border-radius:8px; padding:8px; max-height:160px; overflow:auto; font:10px/1.45 ui-monospace,monospace; }
+    .plan-body { color:#b7c4cf; font-size:11px; line-height:1.55; white-space:pre-wrap; max-height:255px; overflow:auto; }
+    .plan-empty { color:#778694; font-size:11px; }
+    .checks-list { display:grid; gap:7px; }
+    .check-item { display:flex; align-items:flex-start; gap:8px; padding:8px 9px; background:#0d151d; border:1px solid #263442; border-radius:9px; font-size:10px; color:#bfccd7; }
+    .check-state { color:var(--accent); font:700 9px ui-monospace,monospace; }
+    .check-state.fail { color:var(--red); }
+    .files-list { display:flex; flex-wrap:wrap; gap:6px; }
+    .file-chip { border:1px solid #30404f; background:#0b141d; padding:4px 7px; border-radius:7px; color:#aebdca; font:9px ui-monospace,monospace; }
+    .result-banner { display:none; margin-top:15px; padding:13px 16px; border-radius:12px; border:1px solid #315344; background:rgba(70,142,110,.10); }
+    .result-banner.show { display:block; }
+    .result-banner.fail { border-color:#714149; background:rgba(150,58,70,.1); }
+    .result-banner strong { display:block; font-size:12px; }
+    .result-banner span { color:#a9b7c3; font-size:10px; display:block; margin-top:3px; }
+    .right-column { display:grid; gap:15px; align-content:start; }
+    .subtle { color:#71818f; font-size:10px; }
+    .toast { position:fixed; right:20px; bottom:18px; z-index:9; padding:11px 14px; max-width:min(420px,calc(100vw - 40px)); border:1px solid #41515f; border-radius:10px; color:#eaf1f5; background:#17212b; box-shadow:var(--shadow); opacity:0; transform:translateY(8px); pointer-events:none; transition:.2s; font-size:11px; }
+    .toast.show { opacity:1; transform:translateY(0); }
+    @media (max-width:1100px) { .layout { grid-template-columns:340px minmax(0,1fr); } .steps { grid-template-columns:repeat(4,1fr); } .content-grid { grid-template-columns:1fr; } .timeline { height:350px; } }
+    @media (max-width:760px) { .shell { padding:14px; } .layout { grid-template-columns:1fr; } .composer { position:static; } .hero { align-items:flex-start; flex-direction:column; } .hero-metrics { width:100%; } .metric { flex:1; } .top-note { display:none; } .steps { grid-template-columns:repeat(4,minmax(65px,1fr)); } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">ai</div>
+        <div><div class="brand-name">ai-orchestrate</div><div class="brand-sub">Локальный AI-цех для vibe coding</div></div>
+      </div>
+      <div class="top-right">
+        <span class="top-note" id="workspaceLabel">Подключаю рабочую область…</span>
+        <span class="pill"><i class="dot warn" id="codexDot"></i><span id="codexStatus">Проверка Codex</span></span>
+        <span class="pill"><i class="dot warn" id="githubDot"></i><span id="githubStatus">Проверка GitHub CLI</span></span>
+        <span class="pill"><i class="dot warn" id="jevDot"></i><span id="jevStatus">Jev отключён</span></span>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="card composer">
+        <div class="section-head">
+          <div><h1>Новая задача</h1><div class="muted tiny">Опиши результат обычными словами — роли и проверки соберём вокруг него.</div></div>
+          <span class="mode-tag">LOCAL FIRST</span>
+        </div>
+        <form id="runForm">
+          <div class="field">
+            <label for="repo">Папка проекта <span class="field-hint" id="rootHint"></span></label>
+            <div class="repo-row"><input id="repo" type="text" required placeholder="Путь к Git-репозиторию"><button class="icon-button" type="button" id="checkRepo" title="Найти проверки">↻</button></div>
+          </div>
+          <div class="field">
+            <label for="task">Что нужно сделать?</label>
+            <textarea id="task" maxlength="48000" placeholder="Например: Добавь страницу настроек с тёмной темой, сохранением выбора и тестами. Сначала посмотри, как устроен проект."></textarea>
+            <div class="field-hint" style="margin-top:5px">Пиши как человеку. Не вставляй ключи, пароли и приватные данные. Можно оставить пустым, если ниже указан GitHub issue/PR.</div>
+          </div>
+          <div class="field">
+            <label for="githubItem">Контекст из GitHub <span class="field-hint">issue/PR этого репозитория</span></label>
+            <div class="context-row"><input id="githubItem" type="text" placeholder="#42 или https://github.com/owner/repo/issues/42"><button type="button" id="loadGithubContext">Загрузить</button></div>
+            <span class="context-note" id="githubContextNote">gh CLI использует ваш существующий вход через gh auth login.</span>
+          </div>
+          <div class="field">
+            <div class="label-row"><label for="checks" style="margin:0">Автопроверки <span class="field-hint">по одной команде на строку</span></label><button class="subtle" type="button" id="suggestChecks" style="border:0;background:none;color:#8de3c1">автонайти</button></div>
+            <textarea id="checks" placeholder="pytest -q&#10;npm test&#10;python -m unittest discover -s tests"></textarea>
+          </div>
+          <div class="field">
+            <div class="label-row"><span>Режим работы</span><span class="field-hint" id="modeCost">до 5 вызовов в полном цикле</span></div>
+            <div class="segmented">
+              <div class="mode-option active" data-mode="full" tabindex="0"><strong>Полный цикл</strong><span>Аналитик → архитектор → разработчик → тесты → ревью</span><em id="fullCostLabel">3 вызова обычно · до 5 с исправлением</em></div>
+              <div class="mode-option" data-mode="quick" tabindex="0"><strong>Бережливый</strong><span>Разработчик → проверки, без планировщика и ревью</span><em id="quickCostLabel">1 вызов модели</em></div>
+            </div>
+            <div class="cost-preview" id="costPreview" aria-live="polite"></div>
+          </div>
+          <div class="two-col">
+            <div class="field"><label for="profession">Профессия исполнителя</label><select id="profession"></select></div>
+            <div class="field"><label for="lane">Стартовая модель</label><select id="lane"><option value="">Автовыбор</option><option value="SMALL">SMALL · low</option><option value="MEDIUM">MEDIUM · medium</option><option value="HIGH">HIGH · high</option><option value="ESCALATE">ESCALATE · Sol</option></select></div>
+          </div>
+          <div class="field">
+            <label for="router">Триаж задачи</label>
+            <select id="router"><option value="local">Локально · бесплатно</option><option value="jev" id="jevOption">Jev · внешний вызов</option></select>
+            <div class="field-hint" style="margin-top:5px">Jev получает текст задачи для выбора уровня. Решение и уверенность будут видны справа.</div>
+          </div>
+          <details class="limits">
+            <summary>Библиотека готовых промптов ролей</summary>
+            <div class="limits-inner">
+              <div class="field"><label for="promptRole">Роль</label><select id="promptRole"></select></div>
+              <pre class="prompt-body" id="promptBody">Загружаю промпты…</pre>
+              <div class="footnote">Шаблоны используются оркестратором автоматически. В полном цикле роли аналитика, архитектора и ревьюера выполняются отдельными этапами.</div>
+            </div>
+          </details>
+          <details class="limits">
+            <summary>Бюджет, модели и таймауты</summary>
+            <div class="limits-inner">
+              <div class="two-col">
+                <div class="field"><label for="repairs">Автоисправления</label><input id="repairs" type="number" min="0" max="3" value="1"></div>
+                <div class="field"><label for="maxCalls">Макс. вызовов</label><input id="maxCalls" type="number" min="1" max="10" value="5"></div>
+              </div>
+              <div class="two-col">
+                <div class="field"><label for="runBudget">Токены / задача</label><input id="runBudget" type="number" min="100" step="1000" value="60000"></div>
+                <div class="field"><label for="dayBudget">Токены / день</label><input id="dayBudget" type="number" min="100" step="1000" value="120000"></div>
+              </div>
+              <div class="footnote" id="dailyUsage">Загружаю учтённое использование за сегодня…</div>
+              <div class="field"><label for="promptBudget">Текст промптов · оценка</label><input id="promptBudget" type="number" min="100" step="1000" value="16000"></div>
+              <div class="two-col">
+                <div class="field"><label for="codexTimeout">Таймаут Codex · сек</label><input id="codexTimeout" type="number" min="10" max="7200" step="60" value="1800"></div>
+                <div class="field"><label for="checkTimeout">Таймаут проверки · сек</label><input id="checkTimeout" type="number" min="1" max="3600" step="30" value="300"></div>
+              </div>
+              <div class="field"><label for="lunaModel">Модель Luna / обычные полосы</label><input id="lunaModel" type="text" maxlength="120" value="gpt-6-luna"></div>
+              <div class="two-col">
+                <div class="field"><label for="solModel">Модель Sol / эскалация</label><input id="solModel" type="text" maxlength="120" value="gpt-6-sol"></div>
+                <div class="field"><label for="reviewModel">Модель ревьюера <span class="field-hint">пусто = альтернативная</span></label><input id="reviewModel" type="text" maxlength="120" placeholder="автовыбор"></div>
+              </div>
+              <label class="toggle-row"><input id="saveJournal" type="checkbox" checked> Сохранять краткий журнал запусков</label>
+              <div class="two-col">
+                <div class="field"><label for="usageLogPath">Файл token ledger <span class="field-hint">пусто = по умолчанию</span></label><input id="usageLogPath" type="text" maxlength="2048" placeholder="~/.ai-orchestrate/usage.jsonl"></div>
+                <div class="field"><label for="journalPath">Файл журнала <span class="field-hint">пусто = по умолчанию</span></label><input id="journalPath" type="text" maxlength="2048" placeholder="~/.ai-orchestrate/journal.jsonl"></div>
+              </div>
+              <div class="footnote">Фактический исполнитель — Codex CLI. Он использует авторизацию Codex, в том числе вход через ChatGPT, если он подключён в CLI. Прямое управление окном ChatGPT и автоматизация браузера не используются. Токеновые лимиты не прерывают уже активный ход.</div>
+            </div>
+          </details>
+          <details class="limits" open>
+            <summary>GitHub, ветки и автоматическое слияние</summary>
+            <div class="limits-inner">
+              <div class="field"><label for="mergePolicy">Когда сливать готовую задачу</label>
+                <select id="mergePolicy"><option value="confirm">После кнопки «Подтвердить слияние»</option><option value="jev_auto" id="jevMergeOption">Автоматически после финального APPROVE от Jev</option></select>
+              </div>
+              <div class="two-col">
+                <div class="field"><label for="mergeTarget">Куда сливать</label><select id="mergeTarget"><option value="local">Локально · fast-forward в базовую ветку</option><option value="github">GitHub · pull request и merge</option></select></div>
+                <div class="field"><label for="mergeMethod">Способ GitHub merge</label><select id="mergeMethod"><option value="squash">Squash</option><option value="merge">Merge commit</option><option value="rebase">Rebase</option></select></div>
+              </div>
+              <div class="field"><label for="baseBranch">Базовая ветка <span class="field-hint">пусто = текущая / default</span></label><input id="baseBranch" type="text" maxlength="200" placeholder="main"></div>
+              <div class="field"><label for="projectContext">Постоянный контекст проекта <span class="field-hint">отдельно для каждой папки</span></label><textarea id="projectContext" maxlength="12000" placeholder="Архитектурные правила, команды запуска, важные договорённости. Не сохраняй сюда ключи и пароли."></textarea><div class="field-hint">Этот контекст добавляется к каждой задаче только для выбранного репозитория и сохраняется в settings.json.</div></div>
+              <div class="two-col">
+                <div class="field"><label for="branchPrefix">Префикс рабочих веток</label><input id="branchPrefix" type="text" maxlength="100" value="ai-orchestrate"></div>
+                <div class="field"><label for="worktreeRoot">Каталог изолированных worktree</label><input id="worktreeRoot" type="text" maxlength="2048" placeholder="~/.ai-orchestrate/worktrees"></div>
+              </div>
+              <label class="toggle-row"><input id="waitForGithubChecks" type="checkbox" checked> В GitHub дождаться обязательных checks через auto-merge</label>
+              <label class="toggle-row"><input id="deleteBranch" type="checkbox" checked> Удалить рабочую ветку после успешного слияния</label>
+              <div class="footnote">Codex всегда работает в отдельном worktree. Локальное слияние выполняется только fast-forward и только если исходная ветка не изменилась и checkout чист. Для GitHub используется ваш gh auth; write/push/merge происходит только автоматически после APPROVE Jev или после явной кнопки подтверждения. Jev получает ограниченный diff, сводку задачи, результаты проверок и ревью — не API-ключ.</div>
+            </div>
+          </details>
+          <div class="settings-save-row"><button class="secondary-button" type="button" id="saveSettings">Сохранить настройки</button><span class="settings-state" id="settingsState" role="status">Настройки загружаются…</span></div>
+          <button class="primary" type="submit" id="startButton">▶　Запустить полный цикл</button>
+          <button class="cancel" type="button" id="cancelButton">■　Отменить задачу</button>
+          <div class="footnote">Настройки сохраняются локально в settings.json. Каждая задача создаёт отдельную ветку и worktree; исходный checkout не редактируется. Слияние никогда не выполняется вручную в терминале этим агентом.</div>
+        </form>
+      </aside>
+
+      <main class="right">
+        <section class="card hero">
+          <div><div class="hero-kicker">Task control room · v0.3</div><h1>От идеи до проверенного изменения</h1><p>Видно, кто сейчас работает, какие команды запускаются, что решил Jev, что прошло и сколько токенов потрачено. Скрытые рассуждения модели не показываются — только действия, решения и результаты.</p></div>
+          <div class="hero-metrics">
+            <div class="metric"><small>Модельных вызовов</small><strong id="callsMetric">0 / 0</strong></div>
+            <div class="metric"><small>Токены · задача</small><strong id="tokensMetric">0</strong></div>
+            <div class="metric"><small>Время</small><strong id="timeMetric">—</strong></div>
+          </div>
+        </section>
+
+        <section class="card workflow-card">
+          <div class="workflow-head"><div><h2>Поток задачи</h2><div class="status-text" id="runStatus">Ожидает задачу</div></div><span class="pill" id="modePill">Полный цикл</span></div>
+          <div class="steps" id="steps">
+            <div class="step" data-stage="preflight"><i></i><span class="num">01</span><strong>Проверка</strong></div>
+            <div class="step" data-stage="routing"><i></i><span class="num">02</span><strong>Триаж</strong></div>
+            <div class="step" data-stage="planning"><i></i><span class="num">03</span><strong>План</strong></div>
+            <div class="step" data-stage="implementation"><i></i><span class="num">04</span><strong>Разработка</strong></div>
+            <div class="step" data-stage="testing"><i></i><span class="num">05</span><strong>QA / тесты</strong></div>
+            <div class="step" data-stage="review"><i></i><span class="num">06</span><strong>Ревью</strong></div>
+            <div class="step" data-stage="final"><i></i><span class="num">07</span><strong>Итог</strong></div>
+          </div>
+        </section>
+
+        <section class="card orchestra-scene" id="orchestraScene" data-scene="idle" aria-label="Анимация дирижёра Jev и Codex">
+          <div class="orchestra-head">
+            <div><div class="orchestra-kicker">Живая сцена · локальный дирижёр или внешний Jev</div><h2>Jev дирижирует, Codex играет</h2><div class="orchestra-action" id="orchestraAction">Сцена ждёт задачу: Jev настраивает пюпитр, Codex разогревает клавиатуру.</div></div>
+            <span class="orchestra-state"><i class="orchestra-led"></i><span id="orchestraState">ОРКЕСТР ГОТОВ</span></span>
+          </div>
+          <div class="orchestra-stage">
+            <svg class="orchestra-svg" viewBox="0 0 900 230" role="img" aria-labelledby="orchestraTitle orchestraDesc">
+              <title id="orchestraTitle">Jev дирижирует перед Codex</title>
+              <desc id="orchestraDesc">Jev машет палочкой перед экраном Codex. Движение меняется вместе с этапами работы.</desc>
+              <defs>
+                <linearGradient id="jevCoat" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#496d78"/><stop offset="1" stop-color="#233845"/></linearGradient>
+                <linearGradient id="screenGlow" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#152e30"/><stop offset="1" stop-color="#0b171b"/></linearGradient>
+                <radialGradient id="spotlight"><stop offset="0" stop-color="#8ce7c3" stop-opacity=".17"/><stop offset="1" stop-color="#8ce7c3" stop-opacity="0"/></radialGradient>
+              </defs>
+              <rect width="900" height="230" fill="#0b1219"/>
+              <ellipse cx="158" cy="100" rx="175" ry="142" fill="url(#spotlight)"/>
+              <ellipse class="codex-glow" cx="690" cy="105" rx="205" ry="135"/>
+              <g class="music-staff" fill="none"><path d="M25 78H870M25 94H870M25 110H870M25 126H870M25 142H870"/></g>
+              <g aria-hidden="true">
+                <text class="music-note" x="280" y="92">♪</text><text class="music-note" x="382" y="147">♫</text>
+                <text class="music-note" x="495" y="75">♪</text><text class="music-note" x="819" y="103">♫</text>
+              </g>
+              <g class="final-spark" fill="#f2ca78" aria-hidden="true">
+                <path d="M275 65l4 10 10 4-10 4-4 10-4-10-10-4 10-4z"/><path d="M444 153l3 7 8 3-8 3-3 8-3-8-8-3 8-3z"/>
+                <path d="M827 60l3 8 8 3-8 3-3 8-3-8-8-3 8-3z"/>
+              </g>
+              <path d="M24 196H876" stroke="#2e414a" stroke-width="2"/>
+              <ellipse cx="158" cy="196" rx="111" ry="12" fill="#080e13" opacity=".8"/>
+              <g class="jev-puppet">
+                <path class="podium" d="M70 171Q158 161 246 171L232 193H85Z"/>
+                <path d="M89 177H228" stroke="#8ac9b2" stroke-opacity=".55" stroke-width="2"/>
+                <path class="jev-coat" d="M126 106Q152 94 178 106L191 166H112Z"/>
+                <path d="M149 109L159 109L166 147L155 158L144 147Z" fill="#d9ba82"/>
+                <path d="M124 121Q108 129 102 147" fill="none" stroke="#3c5a67" stroke-width="12" stroke-linecap="round"/>
+                <circle cx="101" cy="149" r="7" fill="#efc5a3"/>
+                <path d="M174 113Q187 106 195 95" fill="none" stroke="#3c5a67" stroke-width="12" stroke-linecap="round"/>
+                <circle cx="195" cy="95" r="7" fill="#efc5a3"/>
+                <circle class="jev-face" cx="153" cy="72" r="25"/>
+                <path class="jev-hair" d="M129 69Q128 45 151 44Q175 42 179 66Q166 57 156 57Q145 66 129 69Z"/>
+                <ellipse class="jev-eye" cx="145" cy="74" rx="2.2" ry="3"/><ellipse class="jev-eye" cx="161" cy="74" rx="2.2" ry="3"/>
+                <path d="M147 86Q153 90 160 85" fill="none" stroke="#985f5c" stroke-width="2" stroke-linecap="round"/>
+                <path d="M132 56Q153 48 172 57" fill="none" stroke="#91e0c2" stroke-width="2" opacity=".75"/>
+                <g transform="translate(195 95)"><g class="baton"><path class="baton-stick" d="M0 0L31 -36"/><circle cx="31" cy="-36" r="3" fill="#fff0bd"/></g></g>
+                <text class="label" x="129" y="210">JEV · MAESTRO</text>
+              </g>
+              <g class="codex-unit">
+                <rect class="monitor-frame" x="552" y="38" width="257" height="139" rx="15"/>
+                <rect class="monitor-screen" x="564" y="50" width="233" height="115" rx="9" fill="url(#screenGlow)"/>
+                <circle cx="579" cy="63" r="3" fill="#ff898f"/><circle cx="589" cy="63" r="3" fill="#eac579"/><circle cx="599" cy="63" r="3" fill="#7ee1b6"/>
+                <text x="618" y="68" fill="#91eac4" font-family="ui-monospace,monospace" font-size="9" font-weight="700" letter-spacing="1.6">CODEX // READY</text>
+                <g class="code-lines">
+                  <rect class="code-line blue" x="580" y="81" width="28" height="4" rx="2"/><rect class="code-line" x="614" y="81" width="82" height="4" rx="2"/>
+                  <rect class="code-line amber" x="590" y="94" width="43" height="4" rx="2"/><rect class="code-line" x="639" y="94" width="113" height="4" rx="2"/>
+                  <rect class="code-line blue" x="590" y="107" width="22" height="4" rx="2"/><rect class="code-line" x="618" y="107" width="95" height="4" rx="2"/>
+                  <rect class="code-line amber" x="580" y="120" width="34" height="4" rx="2"/><rect class="code-line" x="620" y="120" width="126" height="4" rx="2"/>
+                  <rect class="code-line blue" x="590" y="133" width="26" height="4" rx="2"/><rect class="code-line" x="622" y="133" width="71" height="4" rx="2"/>
+                </g>
+                <path d="M663 177V190M700 177V190M644 191H719" stroke="#566b75" stroke-width="5" stroke-linecap="round"/>
+                <path d="M617 191L601 199H761L745 191Z" fill="#344853" stroke="#536d77"/>
+                <path d="M618 197H744M629 194L626 198M642 194L639 198M655 194L652 198M668 194L665 198M681 194L678 198M694 194L691 198M707 194L704 198M720 194L717 198M733 194L730 198" stroke="#8bcdb5" stroke-opacity=".7" stroke-width="1"/>
+                <g class="review-glass" fill="none" stroke="#8caeff" stroke-width="4" aria-hidden="true"><circle cx="749" cy="93" r="18"/><path d="M762 107L777 122" stroke-linecap="round"/></g>
+                <g class="test-stamp" aria-hidden="true"><circle cx="776" cy="148" r="16" fill="#15382f" stroke="#86e5be" stroke-width="2"/><path d="M768 148L774 154L785 141" fill="none" stroke="#a7f2ce" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></g>
+                <text class="label" x="634" y="217">CODEX · В РАБОТЕ</text>
+              </g>
+            </svg>
+            <div class="orchestra-caption" role="status" aria-live="polite"><span>СЕЙЧАС</span><b id="orchestraActionLive">Ожидает задачу</b></div>
+          </div>
+        </section>
+
+        <section class="card jev-card" id="jevCard">
+          <div class="jev-top"><div class="jev-title"><div class="jev-icon">J</div><div><h3>Jev · решение роутера</h3><div class="jev-choice" id="jevChoice">Ожидаю результат…</div></div></div><div class="jev-confidence" id="jevConfidence">—</div></div>
+          <div class="probabilities" id="probabilities"></div>
+          <div class="jev-disclaimer">Показываем этап, итоговый выбор и вероятности API. Приватная chain-of-thought не запрашивается и не отображается.</div>
+        </section>
+
+        <div class="result-banner" id="resultBanner"><strong id="resultTitle"></strong><span id="resultText"></span><div class="action-row"><button type="button" id="confirmMergeButton" style="display:none">✓　Подтвердить слияние</button><button type="button" id="discardWorktreeButton" class="danger" style="display:none">Удалить ветку и worktree</button></div></div>
+
+        <div class="content-grid">
+          <section class="card panel">
+            <div class="panel-title"><h2>Журнал действий</h2><span class="counter" id="eventCount">0 событий</span></div>
+            <div class="timeline" id="timeline"><div class="empty" id="emptyState"><div><div class="empty-icon">◉</div><strong>Здесь появится ход работы</strong><span>Запусти задачу — покажу выбор маршрута, роли, команды, файлы и результат каждого этапа.</span></div></div></div>
+          </section>
+          <div class="right-column">
+            <section class="card panel"><div class="panel-title"><h2>План / критерии</h2><span class="counter">АНАЛИТИК + АРХИТЕКТОР</span></div><div class="plan-body" id="planBody"><span class="plan-empty">В полном цикле появится после этапа планирования.</span></div></section>
+            <section class="card panel"><div class="panel-title"><h2>Проверки</h2><span class="counter" id="checkCount">0</span></div><div class="checks-list" id="checksList"><div class="plan-empty">Проверки ещё не запускались.</div></div></section>
+            <section class="card panel"><div class="panel-title"><h2>Изменённые файлы</h2><span class="counter" id="fileCount">0</span></div><div class="files-list" id="filesList"><span class="plan-empty">Пока пусто.</span></div></section>
+            <section class="card panel"><div class="panel-title"><h2>Недавняя работа</h2><span class="counter">локальный журнал</span></div><div class="history-list" id="historyList"><span class="plan-empty">Пока нет завершённых запусков.</span></div></section>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const stepIds = ["preflight", "routing", "planning", "implementation", "testing", "review", "final"];
+    const stageOrder = Object.fromEntries(stepIds.map((id, i) => [id, i]));
+    let state = { mode: "full", status: null, jobId: null, lastEvent: 0, calls: 0, maxCalls: 0, tokens: 0, dailyTokens: null, startAt: 0, timer: null, polling: false, files: new Set(), checkMap: new Map(), settingsTimer: null, settingsLoaded: false, settingsSaving: false, githubItem: null, projectContextRepo: "" };
+
+    function toast(message) {
+      const node = $("toast"); node.textContent = message; node.classList.add("show");
+      clearTimeout(toast.timer); toast.timer = setTimeout(() => node.classList.remove("show"), 3600);
+    }
+    function safeText(value) { return String(value ?? ""); }
+    function updateDailyUsage() {
+      const node = $("dailyUsage");
+      if (state.dailyTokens == null) {
+        node.textContent = state.status?.usage_error || "Учтённое дневное использование недоступно.";
+        node.style.color = "var(--amber)";
+      } else {
+        const budget = Number($("dayBudget").value || 0);
+        node.textContent = `Учтено сегодня: ${state.dailyTokens.toLocaleString()} / ${budget.toLocaleString()} токенов из локального Codex ledger.`;
+        node.style.color = "";
+      }
+    }
+    function setStage(stage, status) {
+      const node = document.querySelector(`.step[data-stage="${stage}"]`);
+      if (!node) return;
+      node.classList.remove("active", "done", "error");
+      if (status) node.classList.add(status);
+    }
+    function activateStage(stage) {
+      const index = stageOrder[stage];
+      if (index === undefined) return;
+      stepIds.forEach((id, i) => {
+        const node = document.querySelector(`.step[data-stage="${id}"]`);
+        if (!node) return;
+        node.classList.remove("active");
+        if (i < index && !node.classList.contains("error")) node.classList.add("done");
+      });
+      setStage(stage, "active");
+    }
+    function formatTime(seconds) {
+      if (!Number.isFinite(seconds)) return "—";
+      if (seconds < 60) return `${Math.round(seconds)}с`;
+      return `${Math.floor(seconds / 60)}м ${Math.round(seconds % 60)}с`;
+    }
+    function statusLabel(status) {
+      return ({queued:"В очереди", running:"Выполняется", merging:"Слияние…", awaiting_confirmation:"Ожидает подтверждения слияния", complete:"Готово", incomplete:"Нужна проверка", failed:"Ошибка", cancelled:"Отменено"})[status] || status;
+    }
+    const orchestraLabels = {
+      idle: "ОРКЕСТР ГОТОВ", preflight: "ПРОВЕРКА ПРОЕКТА", routing: "ТРИАЖ", planning: "ПЛАНИРОВАНИЕ",
+      implementation: "CODEX ИГРАЕТ", testing: "ПРОВЕРКА ЗВУКА", review: "РЕВЬЮ", final: "ФИНАЛ", error: "ПАУЗА"
+    };
+    const orchestraCopy = {
+      idle: "Сцена ждёт задачу: Jev настраивает пюпитр, Codex разогревает клавиатуру.",
+      preflight: "Проверяю партитуру: репозиторий, Git и команды проверок.",
+      routing: "Дирижёр выбирает, какой оркестр и с какой громкостью вступит.",
+      planning: "Jev задаёт темп: аналитик и архитектор собирают короткий план.",
+      implementation: "Jev показывает вступление — Codex исполняет партию.",
+      testing: "Музыка на паузе: локальные тесты проверяют каждую ноту.",
+      review: "Ревьюер слушает запись в read-only и ищет фальшивые ноты.",
+      final: "Занавес: цикл завершён, результат и расход показаны в журнале.",
+      error: "Пауза оркестра: цикл остановлен, смотри сообщение и журнал действий."
+    };
+    function updateOrchestraAction(text) {
+      if (!text) return;
+      const safe = safeText(text);
+      $("orchestraAction").textContent = safe;
+      $("orchestraActionLive").textContent = safe;
+    }
+    function setOrchestraScene(stage, action) {
+      const normalized = orchestraLabels[stage] ? stage : "idle";
+      $("orchestraScene").dataset.scene = normalized;
+      $("orchestraState").textContent = orchestraLabels[normalized];
+      updateOrchestraAction(action || orchestraCopy[normalized]);
+    }
+    function iconFor(event) {
+      if (event.includes("failed") || event.includes("incomplete")) return ["!", "bad"];
+      if (event.includes("completed") || event === "check.result" || event === "usage") return ["✓", "good"];
+      if (event.includes("jev")) return ["J", ""];
+      if (event.includes("tool")) return ["⌘", ""];
+      if (event.includes("file")) return ["↳", "good"];
+      if (event.includes("cancel")) return ["■", "warn"];
+      if (event.includes("warning")) return ["!", "warn"];
+      return ["·", ""];
+    }
+    function addGitHubLink(parent, href, label) {
+      try {
+        const url = new URL(href);
+        if (url.protocol !== "https:" || !["github.com", "www.github.com"].includes(url.hostname.toLowerCase())) return;
+        const link = document.createElement("a");
+        link.className = "github-link"; link.href = url.href; link.target = "_blank"; link.rel = "noopener noreferrer";
+        link.textContent = label; parent.append(link);
+      } catch (_) { /* Ignore untrusted or malformed links. */ }
+    }
+    function addTimeline(event) {
+      const empty = $("emptyState"); if (empty) empty.remove();
+      const node = document.createElement("div"); node.className = "event";
+      const [icon, kind] = iconFor(event.event || "");
+      const iconNode = document.createElement("div"); iconNode.className = `event-icon ${kind}`; iconNode.textContent = icon;
+      const main = document.createElement("div"); main.className = "event-main";
+      const line = document.createElement("div"); line.className = "event-line";
+      const title = document.createElement("div"); title.className = "event-title";
+      title.textContent = `${event.role ? event.role + " · " : ""}${event.message || event.event}`;
+      const time = document.createElement("span"); time.className = "event-time";
+      time.textContent = (event.timestamp || "").split("T")[1]?.slice(0,8) || "";
+      line.append(title, time); main.append(line);
+      const data = event.data || {};
+      let extras = [];
+      if (data.command) extras.push(`$ ${data.command}`);
+      if (data.model) extras.push(`${data.model}${data.effort ? " / " + data.effort : ""}`);
+      if (data.total_tokens != null) {
+        const cached = data.cached_input_tokens != null ? ` · cached ${data.cached_input_tokens}` : "";
+        extras.push(`input ${data.input_tokens ?? "?"}${cached} · output ${data.output_tokens ?? "?"} · всего ${data.total_tokens}`);
+      }
+      if (data.error_type) extras.push(`тип ошибки: ${data.error_type}`);
+      if (extras.length) { const meta = document.createElement("div"); meta.className = "event-meta"; meta.textContent = extras.join("\n"); main.append(meta); }
+      if (data.excerpt && event.event === "model.message") addEventDetails(main, "Краткий ответ роли", data.excerpt);
+      if (data.findings) addEventDetails(main, "Замечания ревью", data.findings);
+      if (data.output && event.event === "check.result") addEventDetails(main, "Вывод проверки", data.output);
+      if (data.cleanup_warning) addEventDetails(main, "Предупреждение GitHub", data.cleanup_warning);
+      if (event.event === "worktree.created" && data.github_url) addGitHubLink(main, data.github_url, "Открыть issue / PR");
+      if (["merge.completed", "merge.queued"].includes(event.event) && data.url) {
+        addGitHubLink(main, data.url, `Открыть pull request${data.number ? ` #${data.number}` : ""}`);
+      }
+      node.append(iconNode, main); $("timeline").prepend(node);
+      $("eventCount").textContent = `${document.querySelectorAll(".event").length} событий`;
+    }
+    function addEventDetails(parent, titleText, value) {
+      const details = document.createElement("details"); details.className = "event-details";
+      const summary = document.createElement("summary"); summary.textContent = titleText;
+      const content = document.createElement("pre"); content.textContent = safeText(value);
+      details.append(summary, content); parent.append(details);
+    }
+    function showJev(data, message) {
+      $("jevCard").classList.add("show");
+      $("jevChoice").textContent = message || `Jev выбрал ${data.choice || "маршрут"}`;
+      $("jevConfidence").textContent = data.confidence != null ? `уверенность ${(data.confidence * 100).toFixed(0)}%` : "Ожидаю…";
+      const root = $("probabilities"); root.replaceChildren();
+      const probs = data.probabilities || {};
+      Object.entries(probs).forEach(([name, value]) => {
+        const card = document.createElement("div"); card.className = "prob";
+        const label = document.createElement("span");
+        const left = document.createElement("b"); left.textContent = name;
+        const right = document.createElement("span"); right.textContent = `${(Number(value) * 100).toFixed(0)}%`;
+        label.append(left, right);
+        const bar = document.createElement("div"); bar.className = "bar";
+        const fill = document.createElement("i"); fill.style.width = `${Math.max(0, Math.min(100, Number(value) * 100))}%`;
+        bar.append(fill); card.append(label, bar); root.append(card);
+      });
+    }
+    function showPlan(text) {
+      $("planBody").textContent = text || "План не получен; исполнитель работает по исходной задаче.";
+    }
+    function showRolePrompt() {
+      const prompt = state.status?.role_prompts?.[$("promptRole").value] || "Промпт недоступен.";
+      $("promptBody").textContent = prompt;
+    }
+    function showCheck(data) {
+      if (!data.command) return;
+      state.checkMap.set(data.command, Number(data.returncode));
+      const root = $("checksList"); root.replaceChildren();
+      for (const [command, code] of state.checkMap.entries()) {
+        const item = document.createElement("div"); item.className = "check-item";
+        const mark = document.createElement("span"); mark.className = `check-state ${code === 0 ? "" : "fail"}`; mark.textContent = code === 0 ? "PASS" : `FAIL ${code}`;
+        const text = document.createElement("span"); text.textContent = command;
+        item.append(mark, text); root.append(item);
+      }
+      $("checkCount").textContent = String(state.checkMap.size);
+    }
+    function showFile(path) {
+      if (!path) return;
+      state.files.add(path);
+      const root = $("filesList"); root.replaceChildren();
+      Array.from(state.files).slice(-40).forEach(name => { const chip = document.createElement("span"); chip.className = "file-chip"; chip.textContent = name; root.append(chip); });
+      $("fileCount").textContent = String(state.files.size);
+    }
+    function applyEvent(event) {
+      state.lastEvent = Math.max(state.lastEvent, event.id || 0);
+      addTimeline(event);
+      const data = event.data || {};
+      if (event.event === "run.started") {
+        activateStage("preflight");
+        setOrchestraScene("preflight", "Старт: проверяю проект перед первым тактом.");
+      }
+      if (event.event === "stage.started") setOrchestraScene(event.stage, event.message);
+      if (event.event === "model.started") updateOrchestraAction(`${event.role || "Codex"} вступает: ${data.model || "модель"} / ${data.effort || "low"}.`);
+      if (event.event === "router.jev.started") updateOrchestraAction("Jev поднимает палочку и выбирает минимально достаточную модель.");
+      if (event.event === "router.jev.completed") updateOrchestraAction(`Jev выбрал ${data.choice || "полосу"} · уверенность ${Math.round((data.confidence || 0) * 100)}%.`);
+      if (event.event === "tool.started") updateOrchestraAction(`Codex запускает партию-команду: ${(data.command || "команда").slice(0, 120)}`);
+      if (event.event === "file.change") updateOrchestraAction(`Codex меняет файл: ${(data.path || "путь не указан").slice(0, 120)}`);
+      if (event.event === "check.started") updateOrchestraAction(`QA слушает: ${data.command || "запускаю проверку"}`);
+      if (event.event === "check.result") updateOrchestraAction(`${data.returncode === 0 ? "PASS" : "FAIL"}: ${data.command || "проверка"}`);
+      if (event.event === "stage.completed") updateOrchestraAction(event.message);
+      if (stageOrder[event.stage] !== undefined && event.event?.endsWith("started")) activateStage(event.stage);
+      if (event.event === "stage.completed" && stageOrder[event.stage] !== undefined) {
+        setStage(event.stage, data.passed === false ? "error" : "done");
+      }
+      if (event.event?.includes("jev")) showJev(data, event.message);
+      if (event.event === "jev.started") { showJev({}, "Jev классифицирует задачу и выбирает минимально достаточную модель…"); }
+      if (event.event === "jev.completed") showJev(data, event.message);
+      if (event.event === "stage.completed" && event.stage === "planning") showPlan(data.plan || "");
+      if (event.event === "check.result") showCheck(data);
+      if (event.event === "check.completed") showCheck(data);
+      if (event.event === "file.change") showFile(data.path);
+      if (event.event === "usage") {
+        state.tokens = Number(data.run_total || (state.tokens + Number(data.total_tokens || 0)));
+        if (data.daily_total != null) state.dailyTokens = Number(data.daily_total);
+        updateDailyUsage();
+        $("tokensMetric").textContent = state.tokens.toLocaleString();
+      }
+      if (event.event === "model.started") {
+        state.calls = Math.max(state.calls, Number(data.call || state.calls + 1));
+        $("callsMetric").textContent = `${state.calls} / ${data.call_limit || "—"}`;
+      }
+      if (event.event === "worktree.created") updateOrchestraAction(`Изолированная ветка ${data.branch || "готова"}; исходный checkout не меняется.`);
+      if (event.event === "merge.started") { $("runStatus").textContent = "Выполняю подтверждённое слияние…"; setOrchestraScene("final", event.message); }
+      if (event.event === "merge.awaiting_confirmation") {
+        const banner = $("resultBanner"); banner.classList.add("show"); banner.classList.remove("fail");
+        $("resultTitle").textContent = "Готово к слиянию"; $("resultText").textContent = event.message || "Нажми подтверждение, чтобы применить готовые изменения.";
+        setOrchestraScene("final", event.message);
+      }
+      if (event.event === "merge.failed") {
+        const banner = $("resultBanner"); banner.classList.add("show", "fail");
+        $("resultTitle").textContent = "Слияние не выполнено"; $("resultText").textContent = event.message || "Рабочая ветка сохранена; исправь причину и повтори подтверждение.";
+      }
+      if (event.event === "merge.completed" || event.event === "merge.queued") {
+        updateOrchestraAction(event.message || "Слияние завершено.");
+      }
+      if (["run.completed", "run.incomplete", "run.failed", "run.cancelled"].includes(event.event)) {
+        stepIds.forEach(id => {
+          const node = document.querySelector(`.step[data-stage="${id}"]`);
+          if (node?.classList.contains("active")) {
+            node.classList.remove("active");
+            if (event.event !== "run.completed") node.classList.add("error");
+          }
+        });
+        setStage("final", event.event === "run.completed" ? "done" : "error");
+        const banner = $("resultBanner"); banner.classList.add("show");
+        const ok = event.event === "run.completed";
+        setOrchestraScene(ok ? "final" : "error", event.message || (ok ? orchestraCopy.final : orchestraCopy.error));
+        if (!ok) banner.classList.add("fail"); else banner.classList.remove("fail");
+        $("resultTitle").textContent = ok ? "Цикл завершён" : event.event === "run.cancelled" ? "Задача остановлена" : "Цикл не прошёл все ворота";
+        $("resultText").textContent = event.message || "";
+        if (data.run_tokens != null) { state.tokens = data.run_tokens; $("tokensMetric").textContent = state.tokens.toLocaleString(); }
+        if (data.model_calls != null) { state.calls = data.model_calls; $("callsMetric").textContent = `${state.calls} / ${state.maxCalls || data.model_calls}`; }
+        if (data.plan) showPlan(data.plan);
+        $("runStatus").textContent = ok ? "Задача завершена успешно" : statusLabel(event.event.replace("run.", ""));
+      } else if (event.event === "stage.started") {
+        $("runStatus").textContent = event.message || "Выполняю этап";
+      } else if (event.event === "router.jev.started") {
+        $("runStatus").textContent = "Jev решает, какой модели поручить задачу…";
+      } else if (event.event === "model.started") {
+        $("runStatus").textContent = `${event.role || "Модель"}: ${data.model || "Codex"} работает…`;
+      }
+    }
+    async function poll() {
+      if (!state.jobId || state.polling) return;
+      state.polling = true;
+      try {
+        const response = await fetch(`/api/runs/${encodeURIComponent(state.jobId)}?after=${state.lastEvent}`, {cache:"no-store"});
+        if (!response.ok) throw new Error("Не удалось получить события задачи");
+        const job = await response.json();
+        job.events.forEach(applyEvent);
+        $("runStatus").textContent = statusLabel(job.status) + (job.error ? ` · ${job.error}` : "");
+        const confirmButton = $("confirmMergeButton"), discardButton = $("discardWorktreeButton");
+        confirmButton.style.display = job.can_confirm ? "inline-flex" : "none";
+        confirmButton.disabled = job.status === "merging";
+        if (job.can_confirm && (job.result?.jev_decision === "REJECT" || job.result?.jev_decision === "UNAVAILABLE")) {
+          confirmButton.textContent = "⚠　Подтвердить вручную несмотря на решение Jev";
+        } else if (job.can_confirm) {
+          confirmButton.textContent = "✓　Подтвердить слияние";
+        }
+        discardButton.style.display = job.can_discard ? "inline-flex" : "none";
+        if (job.status === "awaiting_confirmation") {
+          clearInterval(state.timer); state.timer = null;
+          $("cancelButton").style.display = "none"; $("startButton").disabled = true;
+          $("startButton").textContent = "Ожидается решение по слиянию";
+          const banner = $("resultBanner"); banner.classList.add("show");
+          if (!$("resultTitle").textContent || $("resultTitle").textContent === "Цикл завершён") $("resultTitle").textContent = "Готово к слиянию";
+          if (job.error) { banner.classList.add("fail"); $("resultText").textContent = job.error; }
+          else if (!$("resultText").textContent) $("resultText").textContent = "Проверки пройдены. Подтверди слияние или удали рабочую ветку.";
+        } else if (["complete", "incomplete", "failed", "cancelled"].includes(job.status)) {
+          clearInterval(state.timer); state.timer = null; $("cancelButton").style.display = "none"; $("startButton").disabled = false;
+          $("startButton").textContent = "↻　Запустить новую задачу";
+          if (job.result) {
+            state.tokens = Number(job.result.run_tokens || state.tokens); state.calls = Number(job.result.model_calls || state.calls);
+            $("tokensMetric").textContent = state.tokens.toLocaleString(); $("callsMetric").textContent = `${state.calls} / ${state.maxCalls || state.calls}`;
+            if (job.result.branch) $("resultText").textContent += ` Ветка: ${job.result.branch}.`;
+          }
+          if (!job.can_discard) discardButton.style.display = "none";
+          loadHistory();
+        } else {
+          confirmButton.style.display = "none"; discardButton.style.display = "none";
+          $("startButton").disabled = true; $("cancelButton").style.display = "block";
+        }
+      } catch (error) { toast(error.message); clearInterval(state.timer); state.timer = null; }
+      finally { state.polling = false; }
+    }
+    function collectSettings() {
+      return {
+        default_repo: $("repo").value.trim(), default_checks: $("checks").value,
+        project_context: state.projectContextRepo === $("repo").value.trim() ? $("projectContext").value : undefined,
+        mode: state.mode, profession: $("profession").value, router: $("router").value,
+        lane: $("lane").value, luna_model: $("lunaModel").value.trim(), sol_model: $("solModel").value.trim(),
+        review_model: $("reviewModel").value.trim(), max_repairs: Number($("repairs").value),
+        max_model_calls: Number($("maxCalls").value), prompt_token_budget: Number($("promptBudget").value),
+        max_run_tokens: Number($("runBudget").value), daily_token_budget: Number($("dayBudget").value),
+        codex_timeout: Number($("codexTimeout").value), check_timeout: Number($("checkTimeout").value),
+        merge_policy: $("mergePolicy").value, merge_target: $("mergeTarget").value,
+        merge_method: $("mergeMethod").value, wait_for_github_checks: $("waitForGithubChecks").checked,
+        delete_branch: $("deleteBranch").checked, base_branch: $("baseBranch").value.trim(),
+        branch_prefix: $("branchPrefix").value.trim(), worktree_root: $("worktreeRoot").value.trim(),
+        save_journal: $("saveJournal").checked, usage_log_path: $("usageLogPath").value.trim(),
+        journal_path: $("journalPath").value.trim(),
+      };
+    }
+    function markSettingsDirty() {
+      if (!state.settingsLoaded) return;
+      $("settingsState").textContent = "Есть несохранённые изменения…";
+      clearTimeout(state.settingsTimer);
+      state.settingsTimer = setTimeout(() => saveSettings(false).catch(error => {
+        $("settingsState").textContent = `Не сохранено: ${error.message}`;
+      }), 900);
+    }
+    async function saveSettings(showToast = true) {
+      clearTimeout(state.settingsTimer); state.settingsTimer = null;
+      if (!state.settingsLoaded || state.settingsSaving) return;
+      state.settingsSaving = true; $("saveSettings").disabled = true;
+      $("settingsState").textContent = "Сохраняю…";
+      try {
+        const response = await fetch("/api/settings", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({settings:collectSettings()})});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось сохранить настройки");
+        state.status.settings = data.settings;
+        $("settingsState").textContent = `Сохранено локально: ${state.status.settings_file || "settings.json"}`;
+        if (showToast) toast("Настройки сохранены на этом компьютере.");
+        updateDailyUsage();
+        return data.settings;
+      } finally {
+        state.settingsSaving = false; $("saveSettings").disabled = false;
+      }
+    }
+    function applySettings(settings, defaultRepo, checkSuggestions, projectContext = "") {
+      const s = settings || {};
+      $("repo").value = s.default_repo || defaultRepo || "";
+      state.projectContextRepo = $("repo").value.trim();
+      $("projectContext").value = projectContext || s.project_contexts?.[state.projectContextRepo] || "";
+      $("checks").value = s.default_checks || (checkSuggestions || []).join("\n");
+      $("profession").value = s.profession || "developer";
+      $("router").value = s.router || "local";
+      $("lane").value = s.lane || "";
+      $("lunaModel").value = s.luna_model || "gpt-6-luna";
+      $("solModel").value = s.sol_model || "gpt-6-sol";
+      $("reviewModel").value = s.review_model || "";
+      $("repairs").value = s.max_repairs ?? 1;
+      $("maxCalls").value = s.max_model_calls ?? 5;
+      $("promptBudget").value = s.prompt_token_budget ?? 16000;
+      $("runBudget").value = s.max_run_tokens ?? 60000;
+      $("dayBudget").value = s.daily_token_budget ?? 120000;
+      $("codexTimeout").value = s.codex_timeout ?? 1800;
+      $("checkTimeout").value = s.check_timeout ?? 300;
+      $("mergePolicy").value = s.merge_policy || "confirm";
+      $("mergeTarget").value = s.merge_target || "local";
+      $("mergeMethod").value = s.merge_method || "squash";
+      $("waitForGithubChecks").checked = s.wait_for_github_checks !== false;
+      $("deleteBranch").checked = s.delete_branch !== false;
+      $("baseBranch").value = s.base_branch || "";
+      $("branchPrefix").value = s.branch_prefix || "ai-orchestrate";
+      $("worktreeRoot").value = s.worktree_root || "";
+      $("saveJournal").checked = s.save_journal !== false;
+      $("usageLogPath").value = s.usage_log_path || "";
+      $("journalPath").value = s.journal_path || "";
+      state.mode = s.mode || "full";
+      document.querySelectorAll(".mode-option").forEach(node => node.classList.toggle("active", node.dataset.mode === state.mode));
+      $("modePill").textContent = state.mode === "full" ? "Полный цикл" : "Бережливый";
+      $("startButton").textContent = state.mode === "full" ? "▶　Запустить полный цикл" : "▶　Запустить бережливый цикл";
+      updateCostPreview();
+    }
+    async function loadStatus() {
+      try {
+        const response = await fetch("/api/status", {cache:"no-store"});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Статус недоступен");
+        state.status = data; state.dailyTokens = data.usage_today_tokens;
+        updateDailyUsage();
+        $("workspaceLabel").textContent = `Рабочая область: ${data.workspace_root}`;
+        $("rootHint").textContent = `разрешено внутри ${data.workspace_root}`;
+        for (const option of $("lane").options) {
+          if (!option.value || !data.models?.[option.value]) continue;
+          const [model, effort] = data.models[option.value];
+          option.textContent = `${option.value} · ${model} / ${effort}`;
+        }
+        $("codexStatus").textContent = !data.codex_available ? "Codex CLI не найден" : data.codex_authenticated ? "Codex CLI · вход активен" : "Codex CLI · нужен вход";
+        $("codexDot").classList.toggle("warn", !data.codex_available || !data.codex_authenticated);
+        $("githubStatus").textContent = !data.github_cli_available ? "GitHub CLI gh не найден" : data.github_authenticated ? "GitHub подключён" : "gh установлен · нужен вход";
+        $("githubDot").classList.toggle("warn", !data.github_cli_available || !data.github_authenticated);
+        $("jevStatus").textContent = data.jev_available ? "Jev готов" : "Jev без ключа";
+        $("jevDot").classList.toggle("warn", !data.jev_available);
+        $("jevOption").disabled = !data.jev_available;
+        $("jevMergeOption").disabled = !data.jev_available;
+        const select = $("profession"); select.replaceChildren();
+        data.professions.forEach(person => { const option = document.createElement("option"); option.value = person.key; option.textContent = person.title; option.title = person.description; select.append(option); });
+        const promptTitles = {analyst:"Аналитик", architect:"Архитектор", developer:"Разработчик", bugfixer:"Инженер по багам", frontend:"Frontend / UX-инженер", backend:"Backend-инженер", test_engineer:"Тест-инженер", docs_writer:"Технический писатель", reviewer:"Независимый ревьюер"};
+        const promptSelect = $("promptRole"); promptSelect.replaceChildren();
+        Object.keys(data.role_prompts || {}).forEach(key => { const option = document.createElement("option"); option.value = key; option.textContent = promptTitles[key] || key; promptSelect.append(option); });
+        showRolePrompt();
+        applySettings(data.settings, data.default_repo, data.check_suggestions, data.project_context || "");
+        $("usageLogPath").placeholder = `По умолчанию: ${data.usage_file || "~/.ai-orchestrate/usage.jsonl"}`;
+        $("journalPath").placeholder = `По умолчанию: ${data.journal_file || "~/.ai-orchestrate/journal.jsonl"}`;
+        state.settingsLoaded = true;
+        $("settingsState").textContent = `Загружено: ${data.settings_file || "локальный settings.json"}`;
+        loadHistory();
+      } catch (error) { toast(`Не удалось загрузить панель: ${error.message}`); $("settingsState").textContent = "Настройки недоступны."; }
+    }
+    async function loadHistory() {
+      try {
+        const response = await fetch("/api/history", {cache:"no-store"});
+        if (!response.ok) return;
+        const data = await response.json(); const root = $("historyList"); root.replaceChildren();
+        if (!data.entries?.length) { const empty = document.createElement("span"); empty.className = "plan-empty"; empty.textContent = "Пока нет записей."; root.append(empty); return; }
+        data.entries.forEach(entry => {
+          const card = document.createElement("div"); card.className = "history-entry";
+          const title = document.createElement("strong"); title.textContent = `${entry.status || "run"} · ${entry.github_url || entry.repo || "задача"}`;
+          const meta = document.createElement("span"); meta.textContent = `${entry.timestamp || ""} · ${entry.branch || "без ветки"} · ${Number(entry.run_tokens || 0).toLocaleString()} токенов · merge: ${entry.merge_status || "нет"}`;
+          card.append(title, meta); root.append(card);
+        });
+      } catch (_) { /* History is optional observability, not a run dependency. */ }
+    }
+    async function suggestChecks() {
+      try {
+        const repo = encodeURIComponent($("repo").value);
+        const response = await fetch(`/api/checks?repo=${repo}`); const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось найти проверки");
+        if (!data.checks.length) { toast("Автоматически не нашёл тестовую команду — добавь её вручную."); return; }
+        $("checks").value = data.checks.join("\n"); markSettingsDirty(); toast(`Найдены проверки: ${data.checks.join(", ")}`);
+      } catch (error) { toast(error.message); }
+    }
+    async function loadProjectContext() {
+      try {
+        const response = await fetch(`/api/project-context?repo=${encodeURIComponent($("repo").value.trim())}`, {cache:"no-store"});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось загрузить контекст проекта");
+        $("repo").value = data.repo;
+        state.projectContextRepo = data.repo;
+        $("projectContext").value = data.context || "";
+      } catch (error) { $("githubContextNote").textContent = error.message; }
+    }
+    async function loadGithubContext() {
+      try {
+        const repo = encodeURIComponent($("repo").value);
+        const ref = encodeURIComponent($("githubItem").value.trim());
+        if (!ref) throw new Error("Введи #номер или GitHub URL.");
+        $("loadGithubContext").disabled = true; $("githubContextNote").textContent = "Загружаю issue/PR через gh…";
+        const response = await fetch(`/api/github/item?repo=${repo}&ref=${ref}`, {cache:"no-store"});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось загрузить GitHub context");
+        state.githubItem = data.item;
+        $("mergeTarget").value = "github";
+        if (!$("task").value.trim()) $("task").value = data.suggested_task;
+        $("githubContextNote").textContent = `Загружен ${data.item.kind} #${data.item.number}: ${data.item.title}. Текст будет добавлен к задаче как недоверенный контекст.`;
+        markSettingsDirty(); toast(`GitHub context загружен: #${data.item.number}`);
+      } catch (error) { $("githubContextNote").textContent = error.message; toast(error.message); }
+      finally { $("loadGithubContext").disabled = false; }
+    }
+    async function startRun(event) {
+      event.preventDefault();
+      if (!$("task").value.trim() && !$("githubItem").value.trim()) { toast("Опиши задачу или укажи GitHub issue/PR."); return; }
+      $("startButton").disabled = true; $("startButton").textContent = "Сохраняю настройки…";
+      try {
+        await saveSettings(false);
+        const settings = collectSettings();
+        const payload = {
+          repo: $("repo").value,
+          task: $("task").value,
+          checks: $("checks").value,
+          github_item: $("githubItem").value.trim(),
+          settings,
+        };
+        $("startButton").textContent = "Отправляю задачу…";
+        const response = await fetch("/api/runs", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось запустить задачу");
+        state.jobId = data.id; state.lastEvent = 0; state.calls = 0; state.maxCalls = settings.max_model_calls; state.tokens = 0; state.startAt = Date.now(); state.files.clear(); state.checkMap.clear(); state.polling = false;
+        $("timeline").replaceChildren(); $("eventCount").textContent = "0 событий";
+        const checking = document.createElement("div"); checking.className = "plan-empty"; checking.textContent = "Проверки выполняются…"; $("checksList").replaceChildren(checking);
+        const findingFiles = document.createElement("span"); findingFiles.className = "plan-empty"; findingFiles.textContent = "Ищу изменения…"; $("filesList").replaceChildren(findingFiles);
+        $("checkCount").textContent = "0"; $("fileCount").textContent = "0"; $("callsMetric").textContent = `0 / ${settings.max_model_calls}`; $("tokensMetric").textContent = "0"; $("timeMetric").textContent = "0с";
+        $("resultBanner").classList.remove("show", "fail"); $("confirmMergeButton").style.display = "none"; $("discardWorktreeButton").style.display = "none";
+        $("jevCard").classList.toggle("show", settings.router === "jev" || settings.merge_policy === "jev_auto");
+        if (settings.router === "jev" || settings.merge_policy === "jev_auto") showJev({}, "Jev будет участвовать в маршрутизации или финальном решении о слиянии…"); else $("jevCard").classList.remove("show");
+        stepIds.forEach(id => setStage(id, "")); activateStage("preflight");
+        $("runStatus").textContent = "Подготовка задачи…"; $("startButton").textContent = "Задача выполняется"; $("cancelButton").style.display = "block";
+        state.timer = setInterval(poll, 500); await poll();
+      } catch (error) {
+        $("startButton").disabled = false; $("startButton").textContent = state.mode === "full" ? "▶　Запустить полный цикл" : "▶　Запустить бережливый цикл";
+        toast(error.message);
+      }
+    }
+    async function cancelRun() {
+      if (!state.jobId) return;
+      try { await fetch(`/api/runs/${encodeURIComponent(state.jobId)}/cancel`, {method:"POST"}); toast("Отмена запрошена"); }
+      catch (_) { toast("Не удалось запросить отмену"); }
+    }
+    async function confirmMerge() {
+      if (!state.jobId) return;
+      const ok = window.confirm("Подтвердить слияние этой проверенной ветки в выбранную цель? Для GitHub будут выполнены push/создание или обновление PR и merge.");
+      if (!ok) return;
+      $("confirmMergeButton").disabled = true;
+      try {
+        const response = await fetch(`/api/runs/${encodeURIComponent(state.jobId)}/confirm`, {method:"POST"});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось запустить слияние");
+        $("confirmMergeButton").style.display = "none"; $("runStatus").textContent = "Выполняю подтверждённое слияние…";
+        state.timer = setInterval(poll, 500); await poll();
+      } catch (error) { $("confirmMergeButton").disabled = false; toast(error.message); }
+    }
+    async function discardWorktree() {
+      if (!state.jobId || !window.confirm("Удалить изолированную рабочую копию и её ветку? Это удалит неперенесённые изменения.")) return;
+      $("discardWorktreeButton").disabled = true;
+      try {
+        const response = await fetch(`/api/runs/${encodeURIComponent(state.jobId)}/discard`, {method:"POST"});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось удалить worktree");
+        $("discardWorktreeButton").style.display = "none"; state.timer = setInterval(poll, 500); await poll();
+      } catch (error) { $("discardWorktreeButton").disabled = false; toast(error.message); }
+    }
+    function updateCostPreview() {
+      const repairs = Math.max(0, Number($("repairs").value) || 0);
+      const callLimit = Math.max(1, Number($("maxCalls").value) || 1);
+      const baseline = state.mode === "full" ? 3 : 1;
+      const theoretical = state.mode === "full" ? 3 + 2 * repairs : 1 + repairs;
+      const bounded = Math.min(callLimit, theoretical);
+      $("fullCostLabel").textContent = `3 обычно · до ${3 + 2 * repairs} с исправлениями`;
+      $("quickCostLabel").textContent = `1 обычно · до ${1 + repairs} с исправлениями`;
+      const preview = $("costPreview");
+      const lines = [];
+      lines.push(state.mode === "full"
+        ? `Обычно ${baseline} вызова Codex: планировщик → исполнитель → read-only ревью. До ${theoretical} с учётом ${repairs} автоисправлений.`
+        : `Обычно 1 вызов Codex: исполнитель. До ${theoretical} с учётом ${repairs} автоисправлений.`);
+      lines.push(`Текущий предел: ${callLimit} вызовов Codex; не более ${bounded} по выбранному сценарию. Проверки запускаются локально без модельных вызовов.`);
+      if (state.mode === "full" && callLimit < baseline) lines.push("Предупреждение: лимит ниже трёх вызовов, поэтому цикл может остановиться до независимого ревью.");
+      lines.push($("router").value === "jev"
+        ? "Jev добавит 1 отдельный внешний запрос для триажа; он не входит в лимит Codex и его токеновый ledger."
+        : "Локальный триаж бесплатный и не вызывает модель.");
+      if ($("mergePolicy").value === "jev_auto") lines.push("Финальный Jev-gate отправит Jev отдельный запрос с ограниченным diff, проверками и итогом ревью; автоматическое слияние возможно только при APPROVE.");
+      if ($("mergeTarget").value === "github") lines.push("Подтверждение/APPROVE Jev разрешает push и GitHub PR merge; обязательные GitHub checks будут ожидаться, если включена настройка ниже.");
+      lines.push("Точная сумма в € зависит от тарифов провайдера и здесь не рассчитывается; фактические токены Codex видны по этапам. Лимиты останавливают следующий вызов, но не текущий.");
+      preview.replaceChildren();
+      const title = document.createElement("strong"); title.textContent = "Расход до запуска";
+      const body = document.createElement("span"); body.textContent = lines.join(" ");
+      preview.append(title, body);
+      const tooLow = state.mode === "full" && callLimit < baseline;
+      preview.classList.toggle("warn", tooLow);
+      $("modeCost").textContent = state.mode === "full"
+        ? `${baseline} обычно · до ${bounded} в текущем лимите`
+        : `1 обычно · до ${bounded} в текущем лимите`;
+    }
+    function setMode(mode) {
+      state.mode = mode;
+      document.querySelectorAll(".mode-option").forEach(node => node.classList.toggle("active", node.dataset.mode === mode));
+      $("modePill").textContent = mode === "full" ? "Полный цикл" : "Бережливый";
+      $("startButton").textContent = mode === "full" ? "▶　Запустить полный цикл" : "▶　Запустить бережливый цикл";
+      if (mode === "quick" && Number($("maxCalls").value) === 5) { $("maxCalls").value = 1; $("repairs").value = 0; }
+      else if (mode === "full" && Number($("maxCalls").value) === 1) { $("maxCalls").value = 5; $("repairs").value = 1; }
+      if (mode === "quick" && $("mergePolicy").value === "jev_auto") {
+        $("mergePolicy").value = "confirm";
+        toast("Автослияние Jev отключено: ему нужен полный цикл с независимым ревью.");
+      }
+      updateCostPreview(); markSettingsDirty();
+    }
+    document.querySelectorAll(".mode-option").forEach(node => {
+      node.addEventListener("click", () => setMode(node.dataset.mode));
+      node.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") setMode(node.dataset.mode); });
+    });
+    $("runForm").addEventListener("submit", startRun);
+    $("cancelButton").addEventListener("click", cancelRun);
+    $("confirmMergeButton").addEventListener("click", confirmMerge);
+    $("discardWorktreeButton").addEventListener("click", discardWorktree);
+    $("saveSettings").addEventListener("click", () => saveSettings(true).catch(error => toast(error.message)));
+    $("promptRole").addEventListener("change", showRolePrompt);
+    $("suggestChecks").addEventListener("click", suggestChecks);
+    $("checkRepo").addEventListener("click", suggestChecks);
+    $("loadGithubContext").addEventListener("click", loadGithubContext);
+    $("githubItem").addEventListener("input", () => { state.githubItem = null; });
+    $("repo").addEventListener("change", () => { if (!$("checks").value.trim()) suggestChecks(); loadProjectContext(); markSettingsDirty(); });
+    $("projectContext").addEventListener("change", () => {
+      state.projectContextRepo = $("repo").value.trim();
+      saveSettings(false).catch(error => { $("settingsState").textContent = `Не сохранено: ${error.message}`; });
+    });
+    $("router").addEventListener("change", () => {
+      if ($("router").value === "jev" && $("lane").value) {
+        $("lane").value = "";
+        toast("Jev выберет полосу сам; ручной выбор отключён.");
+      }
+      updateCostPreview(); markSettingsDirty();
+    });
+    $("lane").addEventListener("change", () => {
+      if ($("lane").value && $("router").value === "jev") {
+        $("router").value = "local";
+        toast("Для ручной полосы включён бесплатный локальный роутер.");
+      }
+      updateCostPreview(); markSettingsDirty();
+    });
+    $("mergePolicy").addEventListener("change", () => {
+      if ($("mergePolicy").value === "jev_auto" && state.mode !== "full") {
+        setMode("full");
+      }
+      updateCostPreview(); markSettingsDirty();
+    });
+    $("mergeTarget").addEventListener("change", () => { updateCostPreview(); markSettingsDirty(); });
+    ["repairs", "maxCalls", "mergeMethod", "baseBranch", "branchPrefix", "worktreeRoot", "codexTimeout", "checkTimeout", "lunaModel", "solModel", "reviewModel", "runBudget", "promptBudget", "waitForGithubChecks", "deleteBranch", "saveJournal", "usageLogPath", "journalPath", "profession"].forEach(id => {
+      $(id).addEventListener("change", () => { updateCostPreview(); markSettingsDirty(); });
+    });
+    ["repairs", "maxCalls"].forEach(id => $(id).addEventListener("input", updateCostPreview));
+    $("dayBudget").addEventListener("input", updateDailyUsage);
+    $("dayBudget").addEventListener("change", markSettingsDirty);
+    $("checks").addEventListener("change", markSettingsDirty);
+    setInterval(() => { if (state.startAt && state.timer) $("timeMetric").textContent = formatTime((Date.now() - state.startAt) / 1000); }, 1000);
+    setOrchestraScene("idle");
+    updateCostPreview();
+    loadStatus();
+  </script>
+</body>
+</html>
