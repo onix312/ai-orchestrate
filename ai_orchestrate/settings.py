@@ -8,7 +8,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 
-from .core import OrchestratorError
+from .core import OrchestratorError, state_dir
 
 
 def default_settings() -> dict[str, Any]:
@@ -37,7 +37,7 @@ def default_settings() -> dict[str, Any]:
         "delete_branch": True,
         "base_branch": "",
         "branch_prefix": "ai-orchestrate",
-        "worktree_root": str(Path.home() / ".ai-orchestrate" / "worktrees"),
+        "worktree_root": str(state_dir() / "worktrees"),
         "usage_log_path": "",
         "journal_path": "",
         "save_journal": True,
@@ -93,7 +93,7 @@ def normalize_settings(value: dict[str, Any], base: dict[str, Any] | None = None
     if result["worktree_root"]:
         result["worktree_root"] = _resolved_path(result["worktree_root"], "worktree_root")
     else:
-        result["worktree_root"] = _resolved_path(str(Path.home() / ".ai-orchestrate" / "worktrees"), "worktree_root")
+        result["worktree_root"] = _resolved_path(str(state_dir() / "worktrees"), "worktree_root")
 
     checks = [line.strip() for line in result["default_checks"].splitlines() if line.strip()]
     if len(checks) > 12:
@@ -163,7 +163,7 @@ class SettingsStore:
     """Small atomic, user-local settings store. Secrets are intentionally not stored here."""
 
     def __init__(self, path: Path | None = None) -> None:
-        self.path = (path or (Path.home() / ".ai-orchestrate" / "settings.json")).expanduser().resolve(strict=False)
+        self.path = (path or (state_dir() / "settings.json")).expanduser().resolve(strict=False)
         self._lock = RLock()
 
     def load(self) -> dict[str, Any]:

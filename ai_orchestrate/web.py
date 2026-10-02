@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -13,6 +12,8 @@ from threading import Event, RLock, Thread
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+from . import autofill as autofill_module
+from . import env_setup, projects as project_catalog, secrets
 from .core import (
     OrchestratorError,
     configured_lanes,
@@ -21,6 +22,7 @@ from .core import (
     jev_choice,
     review_passed,
     split_command,
+    state_dir,
     truncate_text,
 )
 from .github import (
@@ -45,7 +47,7 @@ from .gitops import (
     remove_worktree,
 )
 from .prompts import PROFESSIONS, ROLE_PROMPTS
-from .settings import SettingsStore, normalize_settings
+from .settings import SettingsStore, default_settings, normalize_settings
 from .usage import default_usage_path, tokens_for_date
 from .workflow import WorkflowRequest, WorkflowStopped, run_workflow, suggest_checks
 
@@ -92,6 +94,36 @@ class RunJob:
     next_event_id: int = 1
 
 
+@dataclass
+class SetupJob:
+    """One local installer run (Codex CLI / GitHub CLI) with its captured output."""
+
+    id: str
+    tool: str
+    command: str = ""
+    status: str = "running"
+    output: list[str] = field(default_factory=list)
+    error: str = ""
+    created_at: str = field(default_factory=lambda: datetime.now().astimezone().isoformat(timespec="seconds"))
+    finished_at: str = ""
+
+    def public(self, *, after: int = 0) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "tool": self.tool,
+            "command": self.command,
+            "status": self.status,
+            "output": self.output[after:],
+            "total_lines": len(self.output),
+            "error": self.error,
+            "created_at": self.created_at,
+            "finished_at": self.finished_at,
+        }
+
+
+MAX_SETUP_JOBS = 4
+
+
 class RunManager:
     def __init__(
         self,
@@ -105,10 +137,11 @@ class RunManager:
             raise OrchestratorError(f"Workspace root does not exist: {self.workspace_root}")
         self.usage_path = usage_path or default_usage_path()
         self.settings_store = SettingsStore(settings_path)
-        self.journal_path = (journal_path or (Path.home() / ".ai-orchestrate" / "journal.jsonl")).expanduser().resolve(strict=False)
+        self.journal_path = (journal_path or (state_dir() / "journal.jsonl")).expanduser().resolve(strict=False)
         self._lock = RLock()
         self._jobs: dict[str, RunJob] = {}
         self._active_job: str | None = None
+        self._setup_jobs: dict[str, SetupJob] = {}
 
     def _safe_repo_path(self, value: str | None) -> Path:
         raw = (value or str(self.workspace_root)).strip()
@@ -151,17 +184,102 @@ class RunManager:
 
     @staticmethod
     def _codex_login_available() -> bool:
-        executable = shutil.which("codex")
-        if not executable:
-            return False
+        return env_setup.codex_authenticated()
+
+    def environment(self, *, refresh: bool = False) -> dict[str, Any]:
+        added = env_setup.refresh_path() if refresh else []
+        if refresh:
+            env_setup.clear_auth_cache()
+        secrets.activate_stored_jev_key()
+        return env_setup.environment_report(path_added=added)
+
+    def start_setup(self, payload: dict[str, Any]) -> SetupJob:
+        if not isinstance(payload, dict):
+            raise OrchestratorError("Запрос должен быть JSON-объектом.")
+        tool = str(payload.get("tool", "")).strip().lower()
+        if tool not in {"codex", "gh"}:
+            raise OrchestratorError("Автоустановка доступна только для codex и gh.")
+        known = env_setup.environment_report(include_auth=False)["tools"][tool]
+        if known["found"]:
+            raise OrchestratorError(f"{known['title']} уже найден: {known['path']}")
+        if not known["install"]["command"]:
+            manual = known["install"]["manual"] or "установи инструмент вручную"
+            raise OrchestratorError(f"Для этой системы нет автоматического установщика. {manual}")
+        job = SetupJob(id=uuid.uuid4().hex[:12], tool=tool, command=known["install"]["command"])
+        with self._lock:
+            self._setup_jobs[job.id] = job
+            if len(self._setup_jobs) > MAX_SETUP_JOBS:
+                for key in list(self._setup_jobs)[:-MAX_SETUP_JOBS]:
+                    self._setup_jobs.pop(key, None)
+            Thread(target=self._setup_worker, args=(job,), daemon=True, name=f"setup-{job.id}").start()
+        return job
+
+    def _setup_worker(self, job: SetupJob) -> None:
         try:
-            result = subprocess.run(
-                [executable, "login", "status"], capture_output=True, text=True,
-                encoding="utf-8", errors="replace", timeout=8, check=False,
-            )
-            return result.returncode == 0
-        except (OSError, subprocess.SubprocessError):
-            return False
+            result = env_setup.install_tool(job.tool, on_output=lambda line: self._setup_output(job, line))
+            with self._lock:
+                job.status = "complete" if result["ok"] else "failed"
+                job.command = result["command"]
+                if not result["ok"]:
+                    job.error = ("Установщик завершился, но команда всё ещё не находится. "
+                                 "Перезапусти панель или добавь каталог установки в PATH.")
+                job.finished_at = datetime.now().astimezone().isoformat(timespec="seconds")
+        except Exception as exc:  # installer output must always reach the UI
+            with self._lock:
+                job.status = "failed"
+                job.error = str(exc)
+                job.finished_at = datetime.now().astimezone().isoformat(timespec="seconds")
+        finally:
+            env_setup.clear_auth_cache()
+
+    def _setup_output(self, job: SetupJob, line: str) -> None:
+        with self._lock:
+            job.output.append(line)
+            if len(job.output) > env_setup.MAX_INSTALL_OUTPUT_LINES:
+                del job.output[: len(job.output) - env_setup.MAX_INSTALL_OUTPUT_LINES]
+
+    def setup_status(self, job_id: str, *, after: int = 0) -> dict[str, Any] | None:
+        with self._lock:
+            job = self._setup_jobs.get(job_id)
+            return job.public(after=after) if job else None
+
+    def jev_key_status(self) -> dict[str, Any]:
+        secrets.activate_stored_jev_key()
+        return secrets.jev_key_status()
+
+    def save_jev_key(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise OrchestratorError("Запрос должен быть JSON-объектом.")
+        if payload.get("clear"):
+            return secrets.clear_jev_key()
+        key = payload.get("key")
+        if not isinstance(key, str) or not key.strip():
+            raise OrchestratorError("Передай ключ в поле key или clear: true.")
+        return secrets.save_jev_key(key)
+
+    def projects(self) -> dict[str, Any]:
+        settings = self.settings_store.load()
+        return project_catalog.discover_projects(
+            self.workspace_root,
+            settings=settings,
+            journal_path=self._journal_path_for(settings),
+        )
+
+    def autofill(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise OrchestratorError("Запрос должен быть JSON-объектом.")
+        current = self.settings_store.load()
+        repo = self._safe_repo_path(str(payload.get("repo") or current.get("default_repo") or ""))
+        updates, report = autofill_module.autofill(
+            repo, current, overwrite_checks=bool(payload.get("overwrite_checks")),
+        )
+        saved = self.save_settings(updates) if updates else current
+        return {
+            "settings": saved,
+            "report": report,
+            "check_suggestions": suggest_checks(repo),
+            "project_context": saved.get("project_contexts", {}).get(str(repo), ""),
+        }
 
     def status(self) -> dict[str, Any]:
         settings = self.settings_store.load()
@@ -180,11 +298,13 @@ class RunManager:
         return {
             "workspace_root": str(self.workspace_root),
             "default_repo": str(default_repo),
-            "codex_available": shutil.which("codex") is not None,
+            "codex_available": bool(env_setup.find_tool("codex")),
             "codex_authenticated": self._codex_login_available(),
-            "github_cli_available": github_cli_available(),
+            "github_cli_available": bool(env_setup.find_tool("gh")),
             "github_authenticated": github_auth_available(str(default_repo)) if github_cli_available() else False,
-            "jev_available": bool(os.environ.get("TYPESAFE_API_KEY")),
+            "jev_available": bool(secrets.active_jev_key()),
+            "jev_key": secrets.jev_key_status(),
+            "environment": env_setup.environment_report(),
             "usage_today_tokens": usage_today,
             "usage_error": usage_error,
             "settings": settings,
@@ -270,11 +390,16 @@ class RunManager:
             raise OrchestratorError("Для задачи из GitHub выбери цель слияния «GitHub Pull Request».")
         if settings["router"] == "jev" and settings["lane"]:
             raise OrchestratorError("Выбери либо Jev-роутер, либо ручную полосу модели.")
-        if settings["router"] == "jev" and not os.environ.get("TYPESAFE_API_KEY"):
-            raise OrchestratorError("Триаж Jev требует TYPESAFE_API_KEY; выбери локальный бесплатный роутер или настрой ключ.")
+        if settings["router"] == "jev" and not secrets.active_jev_key():
+            raise OrchestratorError(
+                "Триаж Jev требует API-ключ: вставь его в разделе «Ключ Jev» или выбери бесплатный локальный триаж."
+            )
         if settings["merge_policy"] == "jev_auto":
-            if not os.environ.get("TYPESAFE_API_KEY"):
-                raise OrchestratorError("Автослияние после Jev требует TYPESAFE_API_KEY; настрой доступ или выбери кнопку подтверждения.")
+            if not secrets.active_jev_key():
+                raise OrchestratorError(
+                    "Автослияние после Jev требует API-ключ: вставь его в разделе «Ключ Jev» "
+                    "или выбери слияние по кнопке подтверждения."
+                )
             if settings["mode"] != "full":
                 raise OrchestratorError("Автослияние после Jev требует полного цикла с независимым read-only ревью.")
 
@@ -911,6 +1036,9 @@ def make_handler(manager: RunManager) -> type[BaseHTTPRequestHandler]:
                 except OrchestratorError as exc:
                     self._json(500, {"error": str(exc)})
                 return
+            if parsed.path == "/api/defaults":
+                self._json(200, {"settings": default_settings()})
+                return
             if parsed.path == "/api/history":
                 try:
                     self._json(200, {"entries": manager.history()})
@@ -947,6 +1075,40 @@ def make_handler(manager: RunManager) -> type[BaseHTTPRequestHandler]:
                 except OrchestratorError as exc:
                     self._json(400, {"error": str(exc)})
                 return
+            if parsed.path == "/api/environment":
+                try:
+                    self._json(200, manager.environment())
+                except OrchestratorError as exc:
+                    self._json(500, {"error": str(exc)})
+                return
+            if parsed.path == "/api/jev-key":
+                try:
+                    self._json(200, manager.jev_key_status())
+                except OrchestratorError as exc:
+                    self._json(500, {"error": str(exc)})
+                return
+            if parsed.path == "/api/projects":
+                try:
+                    self._json(200, manager.projects())
+                except OrchestratorError as exc:
+                    self._json(500, {"error": str(exc)})
+                return
+            if parsed.path.startswith("/api/setup/"):
+                parts = parsed.path.strip("/").split("/")
+                if len(parts) != 3:
+                    self._json(404, {"error": "Setup job not found."})
+                    return
+                query = parse_qs(parsed.query)
+                try:
+                    after = max(0, int(query.get("after", ["0"])[0]))
+                except ValueError:
+                    after = 0
+                setup_job = manager.setup_status(parts[2], after=after)
+                if setup_job is None:
+                    self._json(404, {"error": "Setup job not found."})
+                else:
+                    self._json(200, setup_job)
+                return
             if parsed.path.startswith("/api/runs/"):
                 parts = parsed.path.strip("/").split("/")
                 if len(parts) != 3:
@@ -980,6 +1142,44 @@ def make_handler(manager: RunManager) -> type[BaseHTTPRequestHandler]:
                     self._json(400, {"error": str(exc)})
                     return
                 self._json(200, {"settings": settings, "saved": True})
+                return
+            if parsed.path == "/api/environment":
+                payload = _json_body(self)
+                if payload is None:
+                    return
+                try:
+                    self._json(200, manager.environment(refresh=bool(payload.get("refresh", True))))
+                except OrchestratorError as exc:
+                    self._json(500, {"error": str(exc)})
+                return
+            if parsed.path == "/api/setup":
+                payload = _json_body(self)
+                if payload is None:
+                    return
+                try:
+                    job = manager.start_setup(payload)
+                except OrchestratorError as exc:
+                    self._json(400, {"error": str(exc)})
+                    return
+                self._json(202, job.public())
+                return
+            if parsed.path == "/api/jev-key":
+                payload = _json_body(self)
+                if payload is None:
+                    return
+                try:
+                    self._json(200, manager.save_jev_key(payload))
+                except OrchestratorError as exc:
+                    self._json(400, {"error": str(exc)})
+                return
+            if parsed.path == "/api/autofill":
+                payload = _json_body(self)
+                if payload is None:
+                    return
+                try:
+                    self._json(200, manager.autofill(payload))
+                except OrchestratorError as exc:
+                    self._json(400, {"error": str(exc)})
                 return
             if parsed.path == "/api/runs":
                 payload = _json_body(self)
@@ -1025,12 +1225,22 @@ def serve(
     settings_path: Path | None = None,
 ) -> int:
     root = workspace_root or Path.cwd()
+    path_added = env_setup.refresh_path()
+    secrets.activate_stored_jev_key()
     manager = RunManager(root, usage_path=usage_path, settings_path=settings_path)
     server = ThreadingHTTPServer((host, port), make_handler(manager))
     server.daemon_threads = True
     print(f"ai-orchestrate UI: http://{host}:{server.server_port}  (workspace: {manager.workspace_root})", flush=True)
     print(f"Settings: {manager.settings_store.path}  |  Journal: {manager._journal_path_for()}  "
           f"|  Token ledger: {manager._usage_path_for(manager.settings_store.load())}", flush=True)
+    report = env_setup.environment_report()
+    print(f"Окружение: {env_setup.summarize_environment(report)}", flush=True)
+    if path_added:
+        print("PATH автодополнен: " + ", ".join(path_added), flush=True)
+    for problem in report["problems"]:
+        print(f"  - {problem['title']}: {problem['fix']}", flush=True)
+    print(f"Ключ Jev: {report['jev']['path']}"
+          f"{' · ' + report['jev']['masked'] if report['jev']['available'] else ' · не задан (не обязательно)'}", flush=True)
     if host == "0.0.0.0":
         print("Warning: UI is reachable through the network; keep the preview/private workspace trusted.", flush=True)
     try:

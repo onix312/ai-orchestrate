@@ -75,6 +75,15 @@ class WebTests(unittest.TestCase):
                 self.assertIn("Сохранить настройки", page)
                 self.assertIn("githubItem", page)
                 self.assertIn("Автоматически после финального APPROVE от Jev", page)
+                # Readiness, Jev key and project discovery panels are part of the shipped UI.
+                self.assertIn("Готовность и доступ", page)
+                self.assertIn("readinessList", page)
+                self.assertIn("Ключ Jev · TYPESAFE_API_KEY", page)
+                self.assertIn("jevKey", page)
+                self.assertIn("Автонастройка", page)
+                self.assertIn("projectList", page)
+                self.assertIn("/api/jev-key", page)
+                self.assertIn("/api/projects", page)
             with urlopen(base + "/api/status", timeout=3) as response:
                 status = response.read().decode("utf-8")
                 self.assertIn(str(root.resolve()), status)

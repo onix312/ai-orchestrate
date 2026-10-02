@@ -27,6 +27,20 @@ EFFORTS = ("low", "medium", "high")
 LANE_ORDER = ("SMALL", "MEDIUM", "HIGH", "ESCALATE")
 
 
+STATE_DIR_NAME = ".ai-orchestrate"
+
+
+def state_dir() -> Path:
+    """Local state root for settings, journal, token ledger, worktrees and API keys.
+
+    ``AI_ORCHESTRATE_HOME`` relocates everything at once, which keeps tests and
+    throwaway profiles away from the real home directory.
+    """
+    override = os.environ.get("AI_ORCHESTRATE_HOME")
+    base = Path(override).expanduser() if override else Path.home() / STATE_DIR_NAME
+    return base.resolve(strict=False)
+
+
 class OrchestratorError(Exception):
     """An actionable error that is safe to show in the terminal."""
 
@@ -724,13 +738,12 @@ def _codex_env() -> dict[str, str]:
     return env
 
 
-def doctor() -> list[tuple[str, bool, str]]:
-    codex_available = shutil.which("codex") is not None
-    git_available = shutil.which("git") is not None
-    jev_enabled = bool(os.environ.get("TYPESAFE_API_KEY"))
-    return [
-        ("Python", True, "running"),
-        ("Codex CLI", codex_available, "available" if codex_available else "not found on PATH"),
-        ("Git", git_available, "available" if git_available else "not found on PATH"),
-        ("Jev router", True, "enabled (optional)" if jev_enabled else "disabled (optional; local router is free)"),
-    ]
+def doctor() -> list[tuple[str, bool, str, str]]:
+    """Prerequisite rows ``(name, ok, detail, hint)``.
+
+    The detection itself lives in :mod:`ai_orchestrate.env_setup`; the import is deferred
+    because that module builds on the helpers defined here.
+    """
+    from .env_setup import doctor_report
+
+    return doctor_report()

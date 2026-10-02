@@ -6,14 +6,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .core import CodexUsage, OrchestratorError
+from .core import CodexUsage, OrchestratorError, state_dir
 
 
 def default_usage_path(explicit: str | None = None) -> Path:
     value = explicit or os.environ.get("AI_ORCHESTRATE_USAGE_LOG")
     if value:
         return Path(value).expanduser().resolve()
-    return Path.home() / ".ai-orchestrate" / "usage.jsonl"
+    return state_dir() / "usage.jsonl"
 
 
 def read_usage_entries(path: Path) -> list[dict[str, Any]]:
