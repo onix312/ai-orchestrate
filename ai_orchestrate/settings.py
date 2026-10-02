@@ -24,6 +24,8 @@ def default_settings() -> dict[str, Any]:
         "api_model": "",
         "api_base_url": "",
         "api_max_rounds": 12,
+        "limit_fallback": "chatgpt",
+        "relay_timeout": 3600,
         "lane": "",
         "luna_model": "",
         "sol_model": "",
@@ -58,6 +60,7 @@ _INT_RANGES = {
     "codex_timeout": (10, 7200),
     "check_timeout": (1, 3600),
     "api_max_rounds": (1, 40),
+    "relay_timeout": (120, 86_400),
 }
 _API_URL_RE = re.compile(r"^https?://[^\s]{1,2000}$")
 _MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$")
@@ -124,8 +127,10 @@ def normalize_settings(value: dict[str, Any], base: dict[str, Any] | None = None
         raise OrchestratorError("Режим должен быть quick или full.")
     if not isinstance(result["router"], str) or result["router"] not in {"local", "jev"}:
         raise OrchestratorError("Роутер должен быть local или jev.")
-    if not isinstance(result["executor"], str) or result["executor"] not in {"codex", "api"}:
-        raise OrchestratorError("Исполнитель должен быть codex или api.")
+    if not isinstance(result["executor"], str) or result["executor"] not in {"codex", "api", "chatgpt"}:
+        raise OrchestratorError("Исполнитель должен быть codex, api или chatgpt.")
+    if not isinstance(result["limit_fallback"], str) or result["limit_fallback"] not in {"chatgpt", "api", "off"}:
+        raise OrchestratorError("Обход лимитов должен быть chatgpt, api или off.")
     api_base_url = result["api_base_url"]
     if api_base_url and not _API_URL_RE.fullmatch(api_base_url):
         raise OrchestratorError("API-адрес должен начинаться с http:// или https:// и не содержать пробелов.")

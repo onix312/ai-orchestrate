@@ -340,17 +340,21 @@ def environment_report(*, include_auth: bool = True, path_added: list[str] | Non
                        executor: str = "codex", api_base_url: str = "") -> dict[str, Any]:
     """Describe everything the panel needs to run, with a fix for each gap.
 
-    ``executor`` decides which executor is a blocker: ``api`` runs without the Codex CLI.
+    ``executor`` decides which executor is a blocker: ``api`` and ``chatgpt``
+    работают без Codex CLI — первый через ключ или локальный сервер, второй
+    через обычный чат ChatGPT, куда промпт и ответ переносит человек.
     """
     api_mode = executor == "api"
+    manual_mode = executor == "chatgpt"
     tools = {
         "git": _tool_report(
             "git", title="Git", required=True,
             purpose="Создаёт изолированную ветку и worktree, выполняет слияние.",
         ),
         "codex": _tool_report(
-            "codex", title="Codex CLI", required=not api_mode,
-            purpose="Исполнитель: пишет код и запускает команды в изолированном worktree.",
+            "codex", title="Codex CLI", required=executor == "codex",
+            purpose=("Исполнитель: пишет код и запускает команды в изолированном worktree." if executor == "codex" else
+                     "Не обязателен для выбранного исполнителя: правки приносит API или обычный чат ChatGPT."),
             login_command="codex login",
             authenticated=codex_authenticated() if include_auth else None,
         ),
@@ -382,20 +386,26 @@ def environment_report(*, include_auth: bool = True, path_added: list[str] | Non
 
     if not tools["codex"]["found"]:
         problems.append({
-            "id": "codex.missing", "tool": "codex", "severity": "optional" if api_mode else "blocker",
+            "id": "codex.missing", "tool": "codex",
+            "severity": "optional" if (api_mode or manual_mode) else "blocker",
             "title": "Codex CLI не найден",
             "detail": ("Выбран API-исполнитель, поэтому Codex CLI не обязателен. Он понадобится, "
                        "если вернёшь исполнителя «Codex CLI»."
-                       if api_mode else "Без Codex CLI панель не может выполнить ни одну задачу."),
+                       if api_mode else
+                       "Выбран ручной исполнитель «ChatGPT (обычный чат)»: промпт и ответ переносятся "
+                       "через chatgpt.com, Codex CLI не нужен."
+                       if manual_mode else "Без Codex CLI панель не может выполнить ни одну задачу."),
             "fix": tools["codex"]["install"]["command"] or "npm install -g @openai/codex",
             "can_install": bool(tools["codex"]["install"]["command"]),
         })
     elif not tools["codex"]["login"]["authenticated"] and include_auth:
         problems.append({
-            "id": "codex.login", "tool": "codex", "severity": "optional" if api_mode else "blocker",
+            "id": "codex.login", "tool": "codex", "severity": "optional" if (api_mode or manual_mode) else "blocker",
             "title": "Codex CLI без входа",
             "detail": ("Выбран API-исполнитель: вход в Codex CLI для запуска не нужен."
                        if api_mode else
+                       "Выбран ручной исполнитель «ChatGPT (обычный чат)»: вход в Codex CLI не нужен."
+                       if manual_mode else
                        "CLI установлен, но не авторизован. Вход интерактивный — выполни команду в терминале."),
             "fix": "codex login", "can_install": False,
         })
@@ -444,7 +454,7 @@ def environment_report(*, include_auth: bool = True, path_added: list[str] | Non
         "path_added": path_added or [],
         "tools": tools,
         "jev": jev,
-        "executor": "api" if api_mode else "codex",
+        "executor": executor,
         "api_keys": api_keys,
         "problems": problems,
         "blockers": [item for item in problems if item["severity"] == "blocker"],

@@ -9,14 +9,17 @@ from pathlib import Path
 from threading import Event
 from typing import Any, Callable
 
+from . import chatgpt_bridge
 from .core import (
     CodexResult,
+    CodexUsage,
     OrchestratorError,
     configured_lanes,
     ensure_clean_git,
     estimate_prompt_tokens,
     format_checks,
     git_snapshot,
+    is_usage_limit_error,
     next_lane_name,
     review_passed,
     route_with_lane,
@@ -29,6 +32,7 @@ from .gitops import worktree_digest
 from .endpoints import endpoint_provider
 from .llm_api import ApiConfig, run_llm_api
 from .prompts import PROFESSIONS, build_developer_prompt, build_planning_prompt, build_reviewer_prompt
+from .relay import ManualRelay, RelayStopped, build_manual_prompt, pack_repository_context
 from .secrets import active_key
 from .usage import append_usage, tokens_for_date
 
@@ -57,6 +61,8 @@ class WorkflowRequest:
     api_model: str = ""
     api_base_url: str = ""
     api_max_rounds: int = 12
+    limit_fallback: str = "chatgpt"
+    relay: ManualRelay | None = None
 
 
 class WorkflowStopped(Exception):
@@ -96,8 +102,47 @@ def _api_key_or_local(base_url: str) -> bool:
     return provider is None or bool(active_key(provider))
 
 
+def _usage_limit_hint(request: WorkflowRequest) -> str:
+    """Что сделать, если лимит исчерпан, а обход недоступен."""
+    if request.limit_fallback == "off":
+        return ("Настройка «Если лимит исчерпан» выключена. Выбери обход через обычный ChatGPT "
+                "или API и запусти задачу заново — рабочая ветка сохранится.")
+    if request.limit_fallback == "api":
+        return ("Для обхода через API нужны имя модели и ключ провайдера (или локальный сервер "
+                "Ollama/LM Studio): заполни их в настройках.")
+    return "Обход через обычный ChatGPT доступен при запуске из панели ai-orchestrate."
+
+
+def _usage_limit_fallback(request: WorkflowRequest, current: str) -> str:
+    """Куда переключиться после ошибки лимита: ``""`` — обхода нет.
+
+    ``limit_fallback=api`` сначала пробует OpenAI-совместимый API (ключ или
+    локальный сервер), потому что он не требует человека; ``chatgpt`` всегда
+    уходит в ручной мост через обычный чат.
+    """
+    if request.limit_fallback == "off":
+        return ""
+    candidates = ("api", "chatgpt") if request.limit_fallback == "api" else ("chatgpt",)
+    for candidate in candidates:
+        if candidate == current:
+            continue
+        if candidate == "api" and request.api_model.strip() and _api_key_or_local(request.api_base_url):
+            return "api"
+        if candidate == "chatgpt" and request.relay is not None:
+            return "chatgpt"
+    return ""
+
+
 def _prepare_request(request: WorkflowRequest) -> WorkflowRequest:
-    """The API executor talks to exactly one model, so the lane router must not invent names."""
+    """У API-исполнителя ровно одна модель, а у ручного моста модель — сам ChatGPT.
+
+    Поэтому полосы не должны выдумывать имена: подставляем понятную подпись,
+    чтобы журнал и панель показывали, кто на самом деле выполняет шаг.
+    """
+    if request.executor == "chatgpt":
+        label = request.api_model.strip() or "chatgpt-manual"
+        return replace(request, luna_model=label, sol_model=label,
+                       review_model=request.review_model.strip() or label)
     if request.executor != "api" or not request.api_model.strip():
         return request
     model = request.api_model.strip()
@@ -132,9 +177,17 @@ def _validate_request(request: WorkflowRequest) -> tuple[Path, list[str]]:
     if min(request.prompt_token_budget, request.max_run_tokens, request.daily_token_budget,
            request.codex_timeout, request.check_timeout) < 1:
         raise OrchestratorError("Лимиты и таймауты должны быть положительными.")
-    if request.executor not in {"codex", "api"}:
-        raise OrchestratorError("Исполнитель должен быть codex или api.")
-    if request.executor == "api":
+    if request.executor not in {"codex", "api", "chatgpt"}:
+        raise OrchestratorError("Исполнитель должен быть codex, api или chatgpt.")
+    if request.limit_fallback not in {"chatgpt", "api", "off"}:
+        raise OrchestratorError("Обход лимитов должен быть chatgpt, api или off.")
+    if request.executor == "chatgpt":
+        if request.relay is None:
+            raise OrchestratorError(
+                "Исполнитель «ChatGPT (обычный чат)» работает только через панель: "
+                "в ней появляется промпт и поле для вставки ответа."
+            )
+    elif request.executor == "api":
         if not request.api_model.strip():
             raise OrchestratorError("Для API-исполнителя укажи имя модели (например gpt-5.1 или llama3.1).")
         if not 1 <= request.api_max_rounds <= 40:
@@ -144,7 +197,7 @@ def _validate_request(request: WorkflowRequest) -> tuple[Path, list[str]]:
                 "Нет ключа API. Сохрани ключ OpenAI/OpenRouter в разделе «Ключи», "
                 "или укажи локальный сервер без ключа (Ollama: http://127.0.0.1:11434/v1)."
             )
-    elif not shutil.which("codex"):
+    elif request.executor == "codex" and not shutil.which("codex"):
         raise OrchestratorError("Codex CLI не найден в PATH. Установи его и выполни codex login.")
 
     try:
@@ -270,7 +323,9 @@ def run_workflow(
     _emit(emit, "stage.completed", "preflight", "Проект готов к запуску.", data={"repo": str(repo), "checks": checks})
 
     daily_start = tokens_for_date(usage_path)
-    if daily_start >= request.daily_token_budget:
+    # Ручной мост через обычный чат не тратит измеряемые токены, поэтому
+    # исчерпанный дневной лимит не должен блокировать такой запуск.
+    if daily_start >= request.daily_token_budget and request.executor != "chatgpt":
         raise OrchestratorError(
             f"Дневной лимит уже израсходован: {daily_start:,}/{request.daily_token_budget:,} токенов."
         )
@@ -304,29 +359,33 @@ def run_workflow(
     run_tokens = 0
     usage_known = True
     ledger_ok = True
+    active_executor = request.executor
     plan = ""
     all_checks: list[dict[str, Any]] = []
     final_review = ""
     last_model_result = CodexResult(0)
 
-    def ensure_can_call(prompt: str) -> int:
+    def ensure_can_call(prompt: str, *, manual: bool) -> int:
         nonlocal prompt_tokens
         if cancel_event.is_set():
             raise WorkflowStopped("Пользователь отменил задачу.")
         if model_calls >= request.max_model_calls:
             raise WorkflowStopped(f"Достигнут лимит вызовов моделей: {model_calls}/{request.max_model_calls}.")
-        if not usage_known:
-            raise WorkflowStopped("Codex не сообщил usage; останавливаю цикл, чтобы не обходить токеновый бюджет.")
-        if not ledger_ok:
-            raise WorkflowStopped("Не удалось обновить usage-лог; новые вызовы остановлены.")
-        if run_tokens >= request.max_run_tokens:
-            raise WorkflowStopped(f"Достигнут лимит задачи: {run_tokens:,}/{request.max_run_tokens:,} токенов.")
-        if daily_start + run_tokens >= request.daily_token_budget:
-            raise WorkflowStopped(
-                f"Достигнут дневной лимит: {daily_start + run_tokens:,}/{request.daily_token_budget:,} токенов."
-            )
+        if not manual:
+            # Измеряемые лимиты относятся только к Codex/API: у ручного моста
+            # расход считает подписка ChatGPT, а не локальный ledger.
+            if not usage_known:
+                raise WorkflowStopped("Codex не сообщил usage; останавливаю цикл, чтобы не обходить токеновый бюджет.")
+            if not ledger_ok:
+                raise WorkflowStopped("Не удалось обновить usage-лог; новые вызовы остановлены.")
+            if run_tokens >= request.max_run_tokens:
+                raise WorkflowStopped(f"Достигнут лимит задачи: {run_tokens:,}/{request.max_run_tokens:,} токенов.")
+            if daily_start + run_tokens >= request.daily_token_budget:
+                raise WorkflowStopped(
+                    f"Достигнут дневной лимит: {daily_start + run_tokens:,}/{request.daily_token_budget:,} токенов."
+                )
         estimate = estimate_prompt_tokens(prompt)
-        if prompt_tokens + estimate > request.prompt_token_budget:
+        if not manual and prompt_tokens + estimate > request.prompt_token_budget:
             raise WorkflowStopped(
                 f"Следующий промпт превышает лимит текста: ~{prompt_tokens + estimate:,}/"
                 f"{request.prompt_token_budget:,} токенов."
@@ -334,15 +393,71 @@ def run_workflow(
         prompt_tokens += estimate
         return estimate
 
+    def run_measured_call(executor: str, prompt: str, call_model: str, call_effort: str,
+                          sandbox: str, on_codex_event: Callable[[dict[str, Any]], None]) -> CodexResult:
+        """Один вызов Codex CLI или OpenAI-совместимого API."""
+        if executor == "api":
+            config = _api_config(request)
+            return run_llm_api(
+                repo, prompt, call_model, config=config, sandbox=sandbox,
+                on_event=on_codex_event, cancel_event=cancel_event,
+                token_budget=max(min(request.max_run_tokens - run_tokens,
+                                     request.daily_token_budget - daily_start - run_tokens), 0),
+                command_timeout=request.check_timeout,
+            )
+        return run_codex(
+            repo, prompt, call_model, call_effort, timeout=request.codex_timeout,
+            sandbox=sandbox, on_event=on_codex_event, cancel_event=cancel_event,
+        )
+
+    def relay_call(role: str, stage: str, prompt: str, *, manual_kind: str, title: str,
+                   instructions: str) -> CodexResult:
+        """Показать промпт в панели, дождаться ответа человека и применить его."""
+        assert request.relay is not None
+        try:
+            answer = request.relay.request(
+                kind=manual_kind, stage=stage, role=role, title=title,
+                instructions=instructions, prompt=prompt,
+            )
+        except RelayStopped as exc:
+            raise WorkflowStopped(str(exc)) from exc
+        if manual_kind not in {"code", "repair"}:
+            return CodexResult(0, CodexUsage(), answer)
+        try:
+            operations = chatgpt_bridge.parse_answer(answer)
+        except OrchestratorError as exc:
+            return CodexResult(1, CodexUsage(), "", stderr=f"Ответ ChatGPT не разобран: {exc}")
+        report = chatgpt_bridge.apply_operations(repo, operations)
+        for item in report.applied:
+            _emit(emit, "file.change", stage, f"Изменение файла: {item['path']}",
+                  role=role, data={"path": item["path"], "status": "applied", "source": "chatgpt"})
+        if not report.ok:
+            errors = "; ".join(f"{item['path']}: {item['error']}" for item in report.rejected[:5])
+            return CodexResult(1, CodexUsage(), "", stderr=f"Ответ ChatGPT отклонён: {errors or 'нет применённых файлов'}")
+        return CodexResult(0, CodexUsage(), f"Применено файлов из ответа ChatGPT: {len(report.applied)}")
+
+    def manual_prompt(base_prompt: str, *, kind: str, extra_note: str = "") -> str:
+        """Дополнить промпт роли контекстом worktree и правилами ответа."""
+        context = pack_repository_context(repo, task=request.task)
+        return build_manual_prompt(
+            base_prompt, kind=kind, context_text=context["text"], context_files=context["files"],
+            check_commands=checks, extra_note=extra_note,
+        )
+
     def model_call(role: str, stage: str, prompt: str, *, call_model: str, call_effort: str,
-                   sandbox: str) -> CodexResult:
-        nonlocal model_calls, run_tokens, usage_known, ledger_ok
-        estimate = ensure_can_call(prompt)
+                   sandbox: str, manual_kind: str = "plan", manual_note: str = "") -> CodexResult:
+        nonlocal model_calls, run_tokens, usage_known, ledger_ok, active_executor
+        executor_for_call = active_executor
+        manual = executor_for_call == "chatgpt"
+        estimate = ensure_can_call(prompt, manual=manual)
         model_calls += 1
         _emit(emit, "model.started", stage,
-              f"{role}: запуск {call_model} / {call_effort}.", role=role,
-              data={"model": call_model, "effort": call_effort, "sandbox": sandbox,
-                    "prompt_estimate": estimate, "call": model_calls, "call_limit": request.max_model_calls})
+              (f"{role}: готовлю промпт для обычного ChatGPT." if manual
+               else f"{role}: запуск {call_model} / {call_effort}."), role=role,
+              data={"model": "chatgpt-manual" if manual else call_model,
+                    "effort": "manual" if manual else call_effort, "sandbox": sandbox,
+                    "prompt_estimate": estimate, "call": model_calls,
+                    "call_limit": request.max_model_calls, "executor": executor_for_call})
         call_started = time.monotonic()
 
         def on_codex_event(raw_event: dict[str, Any]) -> None:
@@ -351,24 +466,62 @@ def run_workflow(
                 event_name, message, data = formatted
                 _emit(emit, event_name, stage, message, role=role, data=data)
 
-        if request.executor == "api":
-            config = _api_config(request)
-            result = run_llm_api(
-                repo, prompt, call_model, config=config, sandbox=sandbox,
-                on_event=on_codex_event, cancel_event=cancel_event,
-                token_budget=max(min(request.max_run_tokens - run_tokens,
-                                     request.daily_token_budget - daily_start - run_tokens), 0),
-                command_timeout=request.check_timeout,
-            )
+        manual_title = {
+            "plan": "План от аналитика и архитектора",
+            "code": "Правки кода для обычного ChatGPT",
+            "repair": "Исправление после неуспешных проверок",
+            "review": "Независимое ревью",
+        }.get(manual_kind, role)
+
+        if manual:
+            prepared = manual_prompt(prompt, kind=manual_kind, extra_note=manual_note)
+            result = relay_call(role, stage, prepared, manual_kind=manual_kind,
+                                title=manual_title, instructions=manual_note)
         else:
-            result = run_codex(
-                repo, prompt, call_model, call_effort, timeout=request.codex_timeout,
-                sandbox=sandbox, on_event=on_codex_event, cancel_event=cancel_event,
-            )
+            result = run_measured_call(executor_for_call, prompt, call_model, call_effort,
+                                       sandbox, on_codex_event)
+            if result.returncode != 0 and not result.cancelled and is_usage_limit_error(
+                    result.stderr, result.final_message):
+                fallback = _usage_limit_fallback(request, executor_for_call)
+                if fallback:
+                    detail = ("лимит Codex ChatGPT" if executor_for_call == "codex"
+                              else "лимит API-провайдера")
+                    _emit(emit, "executor.limit", stage,
+                          f"Упёрлись в {detail}: {truncate_text(result.stderr or result.final_message, 400)}",
+                          role=role, data={"executor": executor_for_call})
+                    _emit(emit, "executor.fallback", stage,
+                          ("Переключаю оставшиеся шаги на OpenAI-совместимый API."
+                           if fallback == "api" else
+                           "Переключаю оставшиеся шаги на обычный ChatGPT: промпт появится в панели, "
+                           "ответ нужно вставить вручную."),
+                          role=role, data={"from": executor_for_call, "to": fallback,
+                                           "limit_fallback": request.limit_fallback})
+                    active_executor = fallback
+                    if fallback == "chatgpt":
+                        prepared = manual_prompt(prompt, kind=manual_kind, extra_note=manual_note)
+                        result = relay_call(role, stage, prepared, manual_kind=manual_kind,
+                                            title=manual_title, instructions=manual_note)
+                    else:
+                        call_model = request.api_model.strip()
+                        result = run_measured_call("api", prompt, call_model, call_effort,
+                                                   sandbox, on_codex_event)
+                else:
+                    _emit(emit, "executor.limit", stage,
+                          f"Лимит исчерпан ({executor_for_call}): "
+                          + truncate_text(result.stderr or result.final_message, 300)
+                          + " " + _usage_limit_hint(request),
+                          role=role, data={"executor": executor_for_call, "fallback": "",
+                                           "hint": _usage_limit_hint(request)})
+        completed_manually = active_executor == "chatgpt"
         elapsed = round(time.monotonic() - call_started, 2)
         total = result.usage.total_tokens
-        usage_known &= total is not None
-        if total is not None:
+        if completed_manually:
+            _emit(emit, "manual.usage", stage,
+                  "Шаг выполнен в обычном ChatGPT: подписочные токены не входят в локальный ledger.",
+                  role=role, data={"metered": False})
+        else:
+            usage_known &= total is not None
+        if not completed_manually and total is not None:
             run_tokens += total
             _emit(emit, "usage", stage, f"{role}: {total:,} токенов за вызов.", role=role,
                   data={"input_tokens": result.usage.input_tokens,
@@ -385,7 +538,7 @@ def run_workflow(
             except OrchestratorError as exc:
                 ledger_ok = False
                 _emit(emit, "warning", stage, f"Не удалось записать usage: {exc}", role=role)
-        else:
+        elif not completed_manually:
             _emit(emit, "usage.unknown", stage,
                   "Codex не вернул token usage; дальнейшие вызовы будут остановлены при включённом лимите.",
                   role=role)
@@ -404,7 +557,9 @@ def run_workflow(
         _emit(emit, "stage.started", "planning", "Аналитик формирует критерии, архитектор — короткий план.",
               role="Аналитик + архитектор")
         plan_result = model_call("Аналитик + архитектор", "planning", plan_prompt,
-                                 call_model=model, call_effort="low", sandbox="read-only")
+                                 call_model=model, call_effort="low", sandbox="read-only",
+                                 manual_kind="plan",
+                                 manual_note="Файлы не меняй: верни только план текстом.")
         if plan_result.cancelled or cancel_event.is_set():
             raise WorkflowStopped("Планирование отменено.")
         if plan_result.returncode != 0:
@@ -431,8 +586,14 @@ def run_workflow(
                 repair_feedback=repair_feedback,
                 checks=checks,
             )
-            last_model_result = model_call(profession_name, "implementation", developer_prompt,
-                                           call_model=model, call_effort=effort, sandbox="workspace-write")
+            last_model_result = model_call(
+                profession_name, "implementation", developer_prompt,
+                call_model=model, call_effort=effort, sandbox="workspace-write",
+                manual_kind="repair" if repair_feedback else "code",
+                manual_note=("Верни только изменённые файлы целым содержимым или патчем: оркестратор сам "
+                             "применит их к worktree и запустит проверки." if not repair_feedback else
+                             "Исправь только перечисленные проблемы и верни файлы целиком или патчем."),
+            )
             if last_model_result.cancelled or cancel_event.is_set():
                 raise WorkflowStopped("Реализация отменена.")
             _emit(emit, "stage.completed", "implementation",
@@ -478,8 +639,12 @@ def run_workflow(
                 sol_model=request.sol_model,
             )
             review_text = build_reviewer_prompt(request.task, plan, diff, status, all_checks)
-            review_result = model_call("Ревьюер", "review", review_text,
-                                       call_model=reviewer_model, call_effort="low", sandbox="read-only")
+            review_result = model_call(
+                "Ревьюер", "review", review_text,
+                call_model=reviewer_model, call_effort="low", sandbox="read-only",
+                manual_kind="review",
+                manual_note="Diff и проверки уже в промпте: ничего не редактируй, верни только вердикт и замечания.",
+            )
             if review_result.cancelled or cancel_event.is_set():
                 raise WorkflowStopped("Ревью отменено.")
             if review_result.returncode != 0:
@@ -493,6 +658,7 @@ def run_workflow(
             if review_ok:
                 result = _finish("complete", request, lane_name, model_calls, run_tokens, prompt_tokens,
                                  started, all_checks, plan, final_review)
+                result["executor"] = active_executor
                 result["verified_digest"] = verified_digest
                 _emit(emit, "run.completed", "final", "Полный цикл завершён успешно.", role="Итог", data=result)
                 return result
@@ -501,6 +667,7 @@ def run_workflow(
         elif implementation_passed:
             result = _finish("complete", request, lane_name, model_calls, run_tokens, prompt_tokens,
                              started, all_checks, plan, "")
+            result["executor"] = active_executor
             result["verified_digest"] = verified_digest
             _emit(emit, "run.completed", "final", "Задача завершена: проверки прошли.", role="Итог", data=result)
             return result
@@ -528,6 +695,7 @@ def run_workflow(
     final_status = "incomplete"
     result = _finish(final_status, request, lane_name, model_calls, run_tokens, prompt_tokens,
                      started, all_checks, plan, final_review)
+    result["executor"] = active_executor
     result["failure_reason"] = repair_feedback
     _emit(emit, "run.incomplete", "final", "Цикл остановлен: " + repair_feedback,
           role="Итог", data=result)

@@ -7,6 +7,7 @@ import os
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -15,6 +16,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 
+from ai_orchestrate import relay as relay_module
 from ai_orchestrate.gitops import create_worktree
 from ai_orchestrate.settings import default_settings
 from ai_orchestrate.web import RunJob, RunManager, RunSubmission, make_handler
@@ -221,6 +223,117 @@ class BridgeRoundTripTests(unittest.TestCase):
         self.assertEqual(summary["report"]["applied"], [])
         self.assertFalse((self.root.parent / "escaped.txt").exists())
         self.assertEqual(self.manager._jobs[job.id].status, "incomplete")
+
+
+class ManualRelayApiTests(unittest.TestCase):
+    """Панель отдаёт промпт в обычный ChatGPT и принимает вставленный ответ по HTTP."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        root = Path(self._tmp.name)
+        self.root = root
+        self.repo = _git_repo(root / "project")
+        patcher = patch.dict(os.environ, {"AI_ORCHESTRATE_HOME": str(root)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.manager = RunManager(root, usage_path=root / "usage.jsonl", settings_path=root / "settings.json",
+                                  journal_path=root / "journal.jsonl")
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(self.manager))
+        thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(thread.join, 2)
+        self.addCleanup(self.server.shutdown)
+        self.base = f"http://127.0.0.1:{self.server.server_port}"
+
+    def _post(self, path, payload, expect_error=False):
+        request = Request(self.base + path, data=json.dumps(payload).encode("utf-8"), method="POST",
+                          headers={"Content-Type": "application/json"})
+        try:
+            with urlopen(request, timeout=10) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except HTTPError as error:
+            if not expect_error:
+                raise
+            return {"status": error.code, "error": json.loads(error.read())["error"]}
+
+    def _get(self, path):
+        with urlopen(self.base + path, timeout=5) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def _waiting_job(self):
+        settings = default_settings()
+        settings.update({"mode": "quick", "executor": "chatgpt", "default_checks": CHECK})
+        submission = RunSubmission(self.repo, "Добавь функцию", [CHECK], settings)
+        job = RunJob(id="relay00001", submission=submission, status="awaiting_answer")
+        job.relay = relay_module.ManualRelay(
+            on_event=lambda event: self.manager._workflow_event(job, event), timeout=30)
+        self.manager._jobs[job.id] = job
+        self.manager._active_job = job.id
+        return job
+
+    def test_answer_endpoint_resumes_a_waiting_manual_step(self):
+        job = self._waiting_job()
+        received = {}
+
+        def worker():
+            received["answer"] = job.relay.request(
+                kind="code", stage="implementation", role="Разработчик",
+                title="Правки кода для обычного ChatGPT", instructions="Верни файлы.",
+                prompt="Ты — инженер. Верни файлы целиком.")
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        deadline = time.monotonic() + 5
+        while not job.relay.waiting() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(job.relay.waiting())
+
+        payload = self._get(f"/api/runs/{job.id}")
+        self.assertEqual(payload["status"], "awaiting_answer")
+        self.assertTrue(payload["can_answer"])
+        self.assertEqual(payload["manual"]["request"]["kind"], "code")
+        self.assertIn("Верни файлы целиком", payload["manual"]["request"]["prompt"])
+
+        answer = "### FILE: app.py\n```\nprint('ok')\n```\n"
+        response = self._post(f"/api/runs/{job.id}/answer", {"answer": answer})
+        self.assertTrue(response["accepted"])
+        thread.join(timeout=5)
+        self.assertEqual(received["answer"], answer)
+        self.assertEqual(job.status, "running")
+        self.assertFalse(self._get(f"/api/runs/{job.id}")["can_answer"])
+
+    def test_answer_endpoint_rejects_when_nothing_is_expected(self):
+        job = self._waiting_job()
+        refused = self._post(f"/api/runs/{job.id}/answer", {"answer": "text"}, expect_error=True)
+        self.assertEqual(refused["status"], 409)
+        self.assertIn("не ожидается", refused["error"])
+        empty = self._post(f"/api/runs/{job.id}/answer", {"answer": "   "}, expect_error=True)
+        self.assertEqual(empty["status"], 409)
+        missing = self._post("/api/runs/does-not-exist/answer", {"answer": "text"}, expect_error=True)
+        self.assertEqual(missing["status"], 409)
+
+    def test_cancel_releases_a_waiting_manual_step(self):
+        job = self._waiting_job()
+        result = {}
+
+        def worker():
+            try:
+                job.relay.request(kind="plan", stage="planning", role="Аналитик", title="План",
+                                  instructions="Верни план.", prompt="План, пожалуйста.")
+            except Exception as exc:  # RelayStopped наследуется от OrchestratorError
+                result["error"] = str(exc)
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        deadline = time.monotonic() + 5
+        while not job.relay.waiting() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(self.manager.cancel(job.id))
+        thread.join(timeout=5)
+        self.assertIn("остановлено", result["error"])
+        self.assertTrue(job.cancel.is_set())
 
 
 if __name__ == "__main__":

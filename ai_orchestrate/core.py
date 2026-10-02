@@ -4,6 +4,7 @@ import json
 import math
 import os
 import queue
+import re
 import shlex
 import shutil
 import signal
@@ -230,6 +231,35 @@ def jev_choice(
 def estimate_prompt_tokens(text: str) -> int:
     """Rough UTF-8-size estimate, used only to bound prompts sent by this tool."""
     return math.ceil(len(text.encode("utf-8")) / 3) if text else 0
+
+
+_USAGE_LIMIT_PATTERNS = (
+    re.compile(r"usage limit", re.IGNORECASE),
+    re.compile(r"you'?ve hit your (?:usage|plan|rate) limit", re.IGNORECASE),
+    re.compile(r"too many requests", re.IGNORECASE),
+    re.compile(r"\brate[ _-]?limit", re.IGNORECASE),
+    re.compile(r"\b429\b"),
+    re.compile(r"quota", re.IGNORECASE),
+    re.compile(r"out of credits", re.IGNORECASE),
+    re.compile(r"insufficient (?:quota|credits|balance|funds)", re.IGNORECASE),
+    re.compile(r"upgrade to pro", re.IGNORECASE),
+    re.compile(r"resource[_ ]exhausted", re.IGNORECASE),
+    re.compile(r"capacity", re.IGNORECASE),
+    re.compile(r"overloaded", re.IGNORECASE),
+)
+
+
+def is_usage_limit_error(*parts: str | None) -> bool:
+    """True for failures that mean «лимит исчерпан», а не ошибка кода.
+
+    Codex CLI, OpenAI API и OpenRouter формулируют это по-разному, поэтому
+    проверяем не только HTTP-код, но и текст: панель использует результат,
+    чтобы предложить обход через обычный чат ChatGPT.
+    """
+    text = "\n".join(part for part in parts if part)
+    if not text.strip():
+        return False
+    return any(pattern.search(text) for pattern in _USAGE_LIMIT_PATTERNS)
 
 
 class CodexEventParser:

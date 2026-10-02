@@ -5,10 +5,28 @@ from pathlib import Path
 from threading import Event
 from unittest.mock import patch
 
-from ai_orchestrate.core import LANES, CodexResult, CodexUsage, OrchestratorError
+from ai_orchestrate.core import LANES, CodexResult, CodexUsage, OrchestratorError, is_usage_limit_error
 from ai_orchestrate.prompts import ROLE_PROMPTS, build_developer_prompt, build_planning_prompt
 from ai_orchestrate.web import RunManager
 from ai_orchestrate.workflow import WorkflowRequest, run_workflow, suggest_checks
+
+LIMIT_MESSAGE = ("You've hit your usage limit. Upgrade to Pro "
+                 "(https://chatgpt.com/explore/pro) or try again at Oct 3rd, 2026 12:09 AM.")
+
+
+class FakeRelay:
+    """Человек, который всегда отвечает заранее заготовленным текстом."""
+
+    def __init__(self, answers):
+        self.answers = list(answers)
+        self.requests = []
+
+    def request(self, *, kind, stage, role, title, instructions, prompt):
+        self.requests.append({"kind": kind, "stage": stage, "role": role, "title": title,
+                              "instructions": instructions, "prompt": prompt})
+        if not self.answers:
+            raise AssertionError("мост запросил больше ответов, чем подготовлено в тесте")
+        return self.answers.pop(0)
 
 
 class WorkflowTests(unittest.TestCase):
@@ -129,6 +147,137 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn(result["failure_reason"], events[-1]["message"])
             completed = next(e for e in events if e["event"] == "model.completed")
             self.assertEqual(completed["data"]["stderr"], "Model unavailable")
+
+    def test_chatgpt_executor_runs_whole_cycle_through_the_manual_relay(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = self._git_repo(root / "project")
+            relay = FakeRelay([
+                "ЦЕЛЬ И КРИТЕРИИ: добавить файл. ПЛАН: создать feature.py.",
+                "### FILE: feature.py\n```\ndef ready():\n    return True\n```\n",
+                "PASS\nЗамечаний нет.",
+            ])
+            request = WorkflowRequest(
+                repo=repo, task="Создай feature.py", checks=["pytest -q"], mode="full",
+                profession="developer", executor="chatgpt", relay=relay,
+                max_repairs=1, max_model_calls=5, limit_fallback="chatgpt",
+            )
+            events = []
+            checks = [{"command": "pytest -q", "returncode": 0, "output": "1 passed"}]
+            with patch("ai_orchestrate.workflow.shutil.which", side_effect=self._which), \
+                 patch("ai_orchestrate.workflow.route_with_lane", return_value=("SMALL", ("chatgpt-manual", "low"))), \
+                 patch("ai_orchestrate.workflow.run_codex") as codex, \
+                 patch("ai_orchestrate.workflow.run_checks", return_value=checks), \
+                 patch("ai_orchestrate.workflow.git_snapshot", return_value=("diff", " M feature.py")):
+                result = run_workflow(request, emit=events.append, cancel_event=Event(),
+                                      usage_path=root / "usage.jsonl")
+            self.assertEqual(result["status"], "complete")
+            self.assertEqual(result["executor"], "chatgpt")
+            self.assertEqual(result["model_calls"], 3)
+            self.assertEqual(result["run_tokens"], 0)
+            codex.assert_not_called()
+            self.assertTrue((repo / "feature.py").is_file())
+            self.assertIn("return True", (repo / "feature.py").read_text(encoding="utf-8"))
+            self.assertEqual([item["kind"] for item in relay.requests], ["plan", "code", "review"])
+            self.assertIn("ЦЕЛЬ И КРИТЕРИИ", relay.requests[0]["prompt"])
+            self.assertIn("*** Begin Patch", relay.requests[1]["prompt"])
+            self.assertIn("feature.py", relay.requests[1]["prompt"])
+            kinds = [event["event"] for event in events]
+            self.assertIn("manual.usage", kinds)
+            self.assertNotIn("usage.unknown", kinds)  # ручные шаги не считаются измеряемыми
+
+    def test_codex_usage_limit_switches_remaining_steps_to_chatgpt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = self._git_repo(root / "project")
+            relay = FakeRelay([
+                "ЦЕЛЬ И КРИТЕРИИ: исправить. ПЛАН: создать fix.py.",
+                "*** Begin Patch\n*** Add File: fix.py\n+ANSWER = 42\n*** End Patch\n",
+                "PASS\nОк.",
+            ])
+            request = WorkflowRequest(
+                repo=repo, task="Исправь лимит", checks=["pytest -q"], mode="full",
+                executor="codex", relay=relay, limit_fallback="chatgpt",
+                max_repairs=0, max_model_calls=5,
+            )
+            events = []
+            limited = CodexResult(1, CodexUsage(), "", stderr=LIMIT_MESSAGE)
+            checks = [{"command": "pytest -q", "returncode": 0, "output": "1 passed"}]
+            with patch("ai_orchestrate.workflow.shutil.which", side_effect=self._which), \
+                 patch("ai_orchestrate.workflow.route_with_lane", return_value=("SMALL", LANES["SMALL"])), \
+                 patch("ai_orchestrate.workflow.run_codex", return_value=limited) as codex, \
+                 patch("ai_orchestrate.workflow.run_checks", return_value=checks), \
+                 patch("ai_orchestrate.workflow.git_snapshot", return_value=("diff", " M fix.py")):
+                result = run_workflow(request, emit=events.append, cancel_event=Event(),
+                                      usage_path=root / "usage.jsonl")
+            self.assertEqual(result["status"], "complete")
+            self.assertEqual(result["executor"], "chatgpt")
+            codex.assert_called_once()  # только первый шаг успел уйти в Codex
+            self.assertTrue((repo / "fix.py").is_file())
+            self.assertEqual([item["kind"] for item in relay.requests], ["plan", "code", "review"])
+            kinds = [event["event"] for event in events]
+            self.assertIn("executor.limit", kinds)
+            self.assertIn("executor.fallback", kinds)
+            fallback = next(event for event in events if event["event"] == "executor.fallback")
+            self.assertEqual(fallback["data"]["to"], "chatgpt")
+
+    def test_usage_limit_without_fallback_keeps_the_plain_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = self._git_repo(root / "project")
+            request = WorkflowRequest(
+                repo=repo, task="Обычная задача", checks=["pytest -q"], mode="quick",
+                executor="codex", limit_fallback="off", max_model_calls=2, max_repairs=0,
+            )
+            limited = CodexResult(1, CodexUsage(), "", stderr=LIMIT_MESSAGE)
+            with patch("ai_orchestrate.workflow.shutil.which", side_effect=self._which), \
+                 patch("ai_orchestrate.workflow.route_with_lane", return_value=("SMALL", LANES["SMALL"])), \
+                 patch("ai_orchestrate.workflow.run_codex", return_value=limited), \
+                 patch("ai_orchestrate.workflow.run_checks", return_value=[
+                     {"command": "pytest -q", "returncode": 1, "output": "AssertionError"}]):
+                result = run_workflow(request, emit=lambda _: None, cancel_event=Event(),
+                                      usage_path=root / "usage.jsonl")
+            self.assertEqual(result["status"], "incomplete")
+            self.assertIn("usage limit", result["failure_reason"])
+
+    def test_usage_limit_without_bypass_explains_what_to_enable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = self._git_repo(root / "project")
+            events = []
+            request = WorkflowRequest(
+                repo=repo, task="Обычная задача", checks=["pytest -q"], mode="quick",
+                executor="codex", limit_fallback="api", max_model_calls=2, max_repairs=0,
+            )
+            limited = CodexResult(1, CodexUsage(20, 0, 5), "", stderr=LIMIT_MESSAGE)
+            with patch("ai_orchestrate.workflow.shutil.which", side_effect=self._which), \
+                 patch("ai_orchestrate.workflow.route_with_lane", return_value=("SMALL", LANES["SMALL"])), \
+                 patch("ai_orchestrate.workflow.run_codex", return_value=limited), \
+                 patch("ai_orchestrate.workflow.run_checks", return_value=[
+                     {"command": "pytest -q", "returncode": 1, "output": "AssertionError"}]):
+                run_workflow(request, emit=events.append, cancel_event=Event(),
+                             usage_path=root / "usage.jsonl")
+            limit_event = next(event for event in events if event["event"] == "executor.limit")
+            self.assertEqual(limit_event["data"]["fallback"], "")
+            self.assertIn("имя модели и ключ", limit_event["message"])
+
+    def test_chatgpt_executor_requires_the_panel_bridge(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = self._git_repo(root / "project")
+            request = WorkflowRequest(repo=repo, task="Задача", checks=["python --version"],
+                                      executor="chatgpt", relay=None)
+            with patch("ai_orchestrate.workflow.shutil.which", side_effect=self._which):
+                with self.assertRaisesRegex(OrchestratorError, "обычный чат"):
+                    run_workflow(request, emit=lambda _: None, cancel_event=Event(),
+                                 usage_path=root / "usage.jsonl")
+
+    def test_usage_limit_detection_covers_cli_and_api_messages(self):
+        self.assertTrue(is_usage_limit_error(LIMIT_MESSAGE))
+        self.assertTrue(is_usage_limit_error('{"error": {"code": "insufficient_quota"}}'))
+        self.assertTrue(is_usage_limit_error("HTTP 429 Too Many Requests"))
+        self.assertFalse(is_usage_limit_error("AssertionError: expected 2"))
+        self.assertFalse(is_usage_limit_error("", None))
 
     def test_ui_workspace_rejects_paths_outside_configured_root(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:

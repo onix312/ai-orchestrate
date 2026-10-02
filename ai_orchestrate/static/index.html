@@ -203,6 +203,7 @@
     .chat-stream { display:flex; flex-direction:column; gap:12px; height:325px; min-height:225px; overflow:auto; padding:16px 20px; background:linear-gradient(180deg,rgba(8,14,20,.24),rgba(12,19,27,.52)); scroll-behavior:smooth; }
     .chat-empty { display:grid; place-items:center; align-content:center; flex:1; min-height:190px; text-align:center; color:#8494a1; padding:18px; }
     .chat-empty[hidden] { display:none; }
+    #relayPanel[hidden] { display:none; }
     .chat-empty-icon { width:38px; height:38px; display:grid; place-items:center; margin-bottom:10px; border:1px solid #2c4146; border-radius:12px; color:#95e4c2; background:rgba(131,240,193,.05); font-size:17px; }
     .chat-empty strong { display:block; color:#c6d3dc; font-size:12px; margin-bottom:4px; }
     .chat-empty span { max-width:350px; font-size:10px; line-height:1.55; }
@@ -457,9 +458,16 @@
           </div>
           <div class="field">
             <label for="executor">Исполнитель <span class="field-hint">кто правит файлы</span></label>
-            <select id="executor"><option value="codex">Codex CLI · вход через codex login</option><option value="api">OpenAI-совместимый API · OpenAI, OpenRouter, Ollama, LM Studio</option></select>
-            <div class="field-hint" style="margin-top:5px">Codex CLI работает по подписке Codex/ChatGPT через <code>codex login</code>. API-исполнитель не требует Codex: нужен только ключ или локальный сервер.</div>
+            <select id="executor"><option value="codex">Codex CLI · вход через codex login</option><option value="api">OpenAI-совместимый API · OpenAI, OpenRouter, Ollama, LM Studio</option><option value="chatgpt">ChatGPT · обычный чат, промпт и ответ вручную</option></select>
+            <div class="field-hint" style="margin-top:5px">Codex CLI работает по подписке Codex/ChatGPT через <code>codex login</code>. API-исполнитель не требует Codex: нужен только ключ или локальный сервер. Ручной исполнитель «ChatGPT (обычный чат)» вообще не тратит токены панели: промпт копируется в chatgpt.com, ответ вставляется сюда, а файлы, проверки, ревью и слияние остаются за оркестратором.</div>
           </div>
+          <div class="two-col" id="fallbackFields">
+            <div class="field"><label for="limitFallback">Если лимит исчерпан <span class="field-hint">обход вместо ошибки</span></label>
+              <select id="limitFallback"><option value="chatgpt">Продолжить в обычном ChatGPT вручную</option><option value="api">Переключиться на API-модель</option><option value="off">Остановить задачу с ошибкой</option></select>
+            </div>
+            <div class="field"><label for="relayTimeout">Ожидание ответа · сек <span class="field-hint">120–86400</span></label><input id="relayTimeout" type="number" min="120" max="86400" step="60" value="3600"></div>
+          </div>
+          <div class="field-hint" style="margin-top:-4px">Обход через обычный ChatGPT не тратит токены панели: промпт появится в панели «Обычный ChatGPT · ответ вручную», ответ вставишь сам. Вариант «API-модель» работает без человека, но требует имя модели и ключ (или локальный сервер Ollama/LM Studio).</div>
           <div class="field" id="apiFields" hidden>
             <label for="apiModel">Модель API <span class="field-hint">имя модели на выбранном сервере</span></label>
             <input id="apiModel" type="text" maxlength="120" placeholder="gpt-5.1 · qwen2.5-coder:7b · llama3.1">
@@ -703,6 +711,23 @@
             <section class="card panel"><div class="panel-title"><h2>План / критерии</h2><span class="counter">АНАЛИТИК + АРХИТЕКТОР</span></div><div class="plan-body" id="planBody"><span class="plan-empty">В полном цикле появится после этапа планирования.</span></div></section>
             <section class="card panel"><div class="panel-title"><h2>Проверки</h2><span class="counter" id="checkCount">0</span></div><div class="checks-list" id="checksList"><div class="plan-empty">Проверки ещё не запускались.</div></div></section>
             <section class="card panel"><div class="panel-title"><h2>Изменённые файлы</h2><span class="counter" id="fileCount">0</span></div><div class="files-list" id="filesList"><span class="plan-empty">Пока пусто.</span></div></section>
+            <section class="card panel" id="relayPanel" hidden><div class="panel-title"><h2>Обычный ChatGPT · ответ вручную</h2><span class="counter" id="relayCounter">шаг ожидается</span></div>
+              <div class="bridge-body">
+                <span class="plan-empty" id="relayHint">Оркестратор ждёт шаг, который выполняет обычный чат ChatGPT.</span>
+                <div class="action-row key-actions" style="margin-top:8px">
+                  <button type="button" id="relayOpenButton" disabled>↗　Открыть chatgpt.com</button>
+                  <button type="button" id="relayCopyButton" disabled>Скопировать промпт</button>
+                </div>
+                <div class="field-hint" id="relayLinkNote" style="margin-top:6px"></div>
+                <textarea id="relayPromptText" readonly spellcheck="false" placeholder="Здесь появится промпт для обычного чата ChatGPT."></textarea>
+                <label for="relayAnswer" style="margin-top:8px">Ответ ChatGPT <span class="field-hint" id="relayFormatHint">вставь ответ целиком</span></label>
+                <textarea id="relayAnswer" spellcheck="false" placeholder="Вставь сюда ответ из обычного чата ChatGPT целиком."></textarea>
+                <div class="action-row key-actions" style="margin-top:8px">
+                  <button type="button" id="relaySendButton" disabled>Отправить ответ и продолжить</button>
+                </div>
+                <span class="key-state" id="relayState">Панель не читает cookies и не автоматизирует ChatGPT: текст переносишь ты.</span>
+              </div>
+            </section>
             <section class="card panel" id="bridgePanel"><div class="panel-title"><h2>Мост ChatGPT</h2><span class="counter">вручную, без автоматизации</span></div>
               <div class="bridge-body">
                 <span class="plan-empty" id="bridgeHint">Собери промпт после запуска: панель отдаст задачу, diff и падающие проверки. Скопируй текст в приложение ChatGPT, верни ответ сюда — панель применит его в worktree и снова запустит проверки.</span>
@@ -730,7 +755,7 @@
     const $ = (id) => document.getElementById(id);
     const stepIds = ["preflight", "routing", "planning", "implementation", "testing", "review", "final"];
     const stageOrder = Object.fromEntries(stepIds.map((id, i) => [id, i]));
-    let state = { mode: "full", status: null, jobId: null, lastEvent: 0, calls: 0, maxCalls: 0, tokens: 0, dailyTokens: null, startAt: 0, timer: null, polling: false, files: new Set(), checkMap: new Map(), settingsTimer: null, settingsLoaded: false, settingsSaving: false, githubItem: null, projectContextRepo: "", env: null, jevKey: null, projects: null, apiKeys: null, chatJobId: null, chatEventIds: new Set(), chatMessageCount: 0 };
+    let state = { mode: "full", status: null, jobId: null, lastEvent: 0, calls: 0, maxCalls: 0, tokens: 0, dailyTokens: null, startAt: 0, timer: null, polling: false, files: new Set(), checkMap: new Map(), settingsTimer: null, settingsLoaded: false, settingsSaving: false, githubItem: null, manual: null, manualKey: "", manualBusy: false, projectContextRepo: "", env: null, jevKey: null, projects: null, apiKeys: null, chatJobId: null, chatEventIds: new Set(), chatMessageCount: 0 };
 
     function toast(message) {
       const node = $("toast"); node.textContent = message; node.classList.add("show");
@@ -771,7 +796,7 @@
       return `${Math.floor(seconds / 60)}м ${Math.round(seconds % 60)}с`;
     }
     function statusLabel(status) {
-      return ({queued:"В очереди", running:"Выполняется", merging:"Слияние…", awaiting_confirmation:"Ожидает подтверждения слияния", complete:"Готово", incomplete:"Нужна проверка", failed:"Ошибка", cancelled:"Отменено"})[status] || status;
+      return ({queued:"В очереди", running:"Выполняется", merging:"Слияние…", awaiting_answer:"Ждёт ответа из ChatGPT", awaiting_confirmation:"Ожидает подтверждения слияния", complete:"Готово", incomplete:"Нужна проверка", failed:"Ошибка", cancelled:"Отменено"})[status] || status;
     }
     const chatStageTitles = {preflight:"Проверка проекта", routing:"Триаж", planning:"План", implementation:"Разработка", testing:"QA / тесты", review:"Ревью", final:"Итог"};
     function setChatStatus(text, kind = "idle") {
@@ -878,6 +903,24 @@
           break;
         case "check.result":
           item = {kind:"activity", role:event.role || "QA", badge:data.returncode === 0 ? "PASS" : `FAIL · ${data.returncode}`, tone:data.returncode === 0 ? "success" : "error", text:data.command || event.message || "Проверка завершена."};
+          break;
+        case "manual.requested":
+          item = {kind:"assistant", role:event.role || "Обычный ChatGPT", badge:"Нужен ответ", tone:"warning",
+                  text:event.message || "Скопируй промпт в chatgpt.com и вставь ответ в панель справа."};
+          setChatStatus("Ждёт ответа из ChatGPT", "waiting");
+          break;
+        case "manual.answered":
+          item = {kind:"activity", role:event.role || "Обычный ChatGPT", badge:"Ответ получен", tone:"success",
+                  text:event.message || "Ответ из обычного ChatGPT получен."};
+          break;
+        case "manual.usage":
+          item = {kind:"activity", role:event.role || "ChatGPT", badge:"Без токенов панели", text:event.message};
+          break;
+        case "executor.limit":
+          item = {kind:"activity", role:event.role || "Оркестратор", badge:"Лимит исчерпан", tone:"warning", text:chatText(event.message)};
+          break;
+        case "executor.fallback":
+          item = {kind:"assistant", role:"Оркестратор", badge:"Обход лимита", tone:"warning", text:chatText(event.message)};
           break;
         case "warning":
           item = {kind:"activity", role:event.role || "Оркестратор", badge:"Предупреждение", tone:"warning", text:chatText(event.message)};
@@ -1066,6 +1109,14 @@
         setOrchestraScene("preflight", "Старт: проверяю проект перед первым тактом.");
       }
       if (event.event === "stage.started") setOrchestraScene(event.stage, event.message);
+      if (event.event === "manual.requested") {
+        if (stageOrder[event.stage] !== undefined) setStage(event.stage, "waiting");
+        setOrchestraScene("error", "Пауза: шаг выполняет обычный ChatGPT, ответ нужно вставить в панель.");
+        updateOrchestraAction("Жду ответ из обычного ChatGPT — промпт и поле для ответа в правой колонке.");
+      }
+      if (event.event === "manual.answered") updateOrchestraAction("Ответ ChatGPT получен: применяю изменения и проверяю их.");
+      if (event.event === "executor.limit") updateOrchestraAction("Лимит исчерпан — включаю обход через обычный ChatGPT.");
+      if (event.event === "executor.fallback") { setOrchestraScene("error", event.message); }
       if (event.event === "model.started") updateOrchestraAction(`${event.role || "Codex"} вступает: ${data.model || "модель"} / ${data.effort || "low"}.`);
       if (event.event === "router.jev.started") updateOrchestraAction("Jev поднимает палочку и выбирает минимально достаточную модель.");
       if (event.event === "router.jev.completed") updateOrchestraAction(`Jev выбрал ${data.choice || "полосу"} · уверенность ${Math.round((data.confidence || 0) * 100)}%.`);
@@ -1174,8 +1225,9 @@
         }
         if (!state.startAt && job.created_at) state.startAt = new Date(job.created_at).getTime();
         job.events.forEach(applyEvent);
+        applyManual(job);
         state.canBridge = job.can_bridge; syncBridgeButtons();
-        const chatTone = ({running:"running", queued:"running", merging:"running", awaiting_confirmation:"waiting", complete:"done", incomplete:"error", failed:"error", cancelled:"waiting"})[job.status] || "idle";
+        const chatTone = ({running:"running", queued:"running", merging:"running", awaiting_answer:"waiting", awaiting_confirmation:"waiting", complete:"done", incomplete:"error", failed:"error", cancelled:"waiting"})[job.status] || "idle";
         setChatStatus(statusLabel(job.status), chatTone);
         $("runStatus").textContent = statusLabel(job.status) + (job.error ? ` · ${job.error}` : "");
         const confirmButton = $("confirmMergeButton"), discardButton = $("discardWorktreeButton");
@@ -1225,6 +1277,7 @@
         mode: state.mode, profession: $("profession").value, router: $("router").value,
         lane: $("lane").value, luna_model: $("lunaModel").value.trim(), sol_model: $("solModel").value.trim(),
         executor: $("executor").value, api_model: $("apiModel").value.trim(),
+        limit_fallback: $("limitFallback").value, relay_timeout: Number($("relayTimeout").value),
         api_base_url: $("apiBaseUrl").value.trim(), api_max_rounds: Number($("apiMaxRounds").value),
         review_model: $("reviewModel").value.trim(), max_repairs: Number($("repairs").value),
         max_model_calls: Number($("maxCalls").value), prompt_token_budget: Number($("promptBudget").value),
@@ -1240,13 +1293,22 @@
     }
     function syncExecutorFields() {
       const api = $("executor").value === "api";
+      const manual = $("executor").value === "chatgpt";
       $("apiFields").hidden = !api;
       $("apiModel").required = api;
-      $("jevOption").disabled = api;
-      if (api && $("router").value === "jev") { $("router").value = "local"; }
+      $("jevOption").disabled = api || manual;
+      if ((api || manual) && $("router").value === "jev") { $("router").value = "local"; }
+      $("limitFallback").disabled = manual;
+      $("limitFallback").title = manual
+        ? "Ручной исполнитель уже работает через обычный ChatGPT: обход лимитов не нужен."
+        : "Если Codex или API упрётся в лимит, панель подставит промпт для обычного чата ChatGPT.";
+      $("relayTimeout").disabled = !(manual || $("limitFallback").value === "chatgpt");
       const mode = $("costPreview");
       if (mode && api && !$("apiModel").value.trim()) {
         mode.textContent = "API-исполнитель: укажи имя модели (и ключ или локальный сервер).";
+      }
+      if (mode && manual) {
+        mode.textContent = "Ручной исполнитель: каждый шаг панель отдаёт промптом в chatgpt.com и ждёт вставленный ответ. Токены панели не расходуются.";
       }
     }
     async function loadApiKeys() {
@@ -1280,6 +1342,80 @@
       const changed = data.changed || {};
       toast(changed.note || "Готово");
       await loadApiKeys();
+    }
+    function relayAnswerHint(kind) {
+      if (kind === "code" || kind === "repair") return "блоки ### FILE: или *** Begin Patch";
+      if (kind === "review") return "первая строка PASS или ISSUES";
+      return "верни план текстом";
+    }
+    function applyManual(job) {
+      const manual = job && job.manual ? job.manual : null;
+      const request = manual && manual.request ? manual.request : null;
+      const pending = Boolean(request && manual.waiting);
+      state.manual = pending ? request : null;
+      const panel = $("relayPanel");
+      const wasHidden = panel.hidden;
+      panel.hidden = !pending;
+      if (!pending) {
+        state.manualKey = "";
+        $("relayCounter").textContent = "шаг не ожидается";
+        syncRelayButtons();
+        return;
+      }
+      const key = `${request.created_at}|${request.kind}|${request.chars}`;
+      if (key !== state.manualKey) {
+        state.manualKey = key;
+        $("relayPromptText").value = request.prompt || "";
+        $("relayAnswer").value = "";
+        $("relayCounter").textContent = `${request.role || "ChatGPT"} · ${request.kind}`;
+        $("relayHint").textContent = request.instructions || request.title || "Скопируй промпт в обычный ChatGPT и вставь ответ сюда.";
+        $("relayFormatHint").textContent = relayAnswerHint(request.kind);
+        $("relayLinkNote").textContent = request.prompt_in_url
+          ? "Кнопка откроет chatgpt.com с уже подставленным промптом — останется отправить его."
+          : "Промпт длинный и не помещается в ссылку: скопируй его кнопкой и вставь в ChatGPT вручную.";
+        $("relayState").textContent = `Жду ответ · таймаут ${Math.round((manual.timeout_seconds || 3600) / 60)} мин. Панель не читает cookies ChatGPT.`;
+        if (wasHidden) toast("Нужен шаг в обычном ChatGPT: промпт готов в панели справа.");
+      }
+      syncRelayButtons();
+    }
+    function syncRelayButtons() {
+      const usable = Boolean(state.manual) && !state.manualBusy;
+      $("relayOpenButton").disabled = !usable;
+      $("relayCopyButton").disabled = !usable || !$("relayPromptText").value;
+      $("relaySendButton").disabled = !usable || !$("relayAnswer").value.trim();
+    }
+    function openRelayChat() {
+      if (!state.manual) return;
+      window.open(state.manual.url || "https://chatgpt.com/", "_blank", "noopener");
+      if (!state.manual.prompt_in_url) copyRelayPrompt();
+    }
+    async function copyRelayPrompt() {
+      try {
+        await navigator.clipboard.writeText($("relayPromptText").value);
+        toast("Промпт скопирован — вставь его в обычный ChatGPT.");
+      } catch (error) {
+        $("relayPromptText").select();
+        toast("Скопируй текст вручную (Ctrl+C).");
+      }
+    }
+    async function sendRelayAnswer() {
+      if (!state.jobId || !state.manual) return;
+      const answer = $("relayAnswer").value;
+      if (!answer.trim()) { toast("Вставь ответ ChatGPT."); return; }
+      state.manualBusy = true; syncRelayButtons();
+      $("relayState").textContent = "Передаю ответ: оркестратор применит файлы и запустит проверки…";
+      clearInterval(state.timer); state.timer = setInterval(poll, 1000);
+      try {
+        const response = await fetch(`/api/runs/${encodeURIComponent(state.jobId)}/answer`, {
+          method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({answer})});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось передать ответ");
+        $("relayAnswer").value = "";
+        state.manual = null; state.manualKey = ""; $("relayPanel").hidden = true;
+        $("relayState").textContent = "Ответ передан. Оркестратор продолжает цикл.";
+        toast(`Ответ ChatGPT передан (${data.chars || answer.length} символов).`);
+      } catch (error) { $("relayState").textContent = error.message; }
+      finally { state.manualBusy = false; syncRelayButtons(); await poll(); }
     }
     function syncBridgeButtons() {
       const job = state.jobId;
@@ -1373,6 +1509,8 @@
       $("apiModel").value = s.api_model || "";
       $("apiBaseUrl").value = s.api_base_url || "";
       $("apiMaxRounds").value = s.api_max_rounds ?? 12;
+      $("limitFallback").value = s.limit_fallback || "chatgpt";
+      $("relayTimeout").value = s.relay_timeout ?? 3600;
       syncExecutorFields();
       $("repairs").value = s.max_repairs ?? 1;
       $("maxCalls").value = s.max_model_calls ?? 5;
@@ -1722,6 +1860,7 @@
       clearInterval(state.timer);
       state.jobId = jobId; state.lastEvent = 0; state.calls = 0; state.tokens = 0; state.startAt = 0;
       state.files.clear(); state.checkMap.clear(); state.canBridge = false;
+      state.manual = null; state.manualKey = ""; applyManual(null);
       resetChat(); setChatStatus("Загружаю ход работы…", "running");
       $("timeline").replaceChildren(); $("checksList").replaceChildren(); $("filesList").replaceChildren();
       $("resultTitle").textContent = ""; $("resultText").textContent = "";
@@ -1924,6 +2063,8 @@
       lines.push($("router").value === "jev"
         ? "Jev добавит 1 отдельный внешний запрос для триажа; он не входит в лимит Codex и его токеновый ledger."
         : "Локальный триаж бесплатный и не вызывает модель.");
+      if ($("executor").value === "chatgpt") lines.push("Ручной исполнитель: панель не вызывает модель, а отдаёт готовый промпт в обычный ChatGPT и ждёт вставленный ответ — токены панели не расходуются.");
+      else if ($("limitFallback").value === "chatgpt") lines.push("Обход лимита: если Codex или API ответит ошибкой лимита, панель продолжит цикл через обычный ChatGPT и попросит вставить ответ.");
       if ($("mergePolicy").value === "jev_auto") lines.push("Финальный Jev-gate отправит Jev отдельный запрос с ограниченным diff, проверками и итогом ревью; автоматическое слияние возможно только при APPROVE.");
       if ($("mergeTarget").value === "github") lines.push("Подтверждение/APPROVE Jev разрешает push и GitHub PR merge; обязательные GitHub checks будут ожидаться, если включена настройка ниже.");
       lines.push("Точная сумма в € зависит от тарифов провайдера и здесь не рассчитывается; фактические токены Codex видны по этапам. Лимиты останавливают следующий вызов, но не текущий.");
@@ -2016,6 +2157,12 @@
       const input = $(button.dataset.toggleKey);
       input.type = input.type === "password" ? "text" : "password";
     }));
+    $("relaySendButton").addEventListener("click", sendRelayAnswer);
+    $("relayAnswer").addEventListener("input", syncRelayButtons);
+    $("relayOpenButton").addEventListener("click", openRelayChat);
+    $("relayCopyButton").addEventListener("click", copyRelayPrompt);
+    $("limitFallback").addEventListener("change", () => { syncExecutorFields(); updateCostPreview(); markSettingsDirty(); });
+    $("relayTimeout").addEventListener("change", markSettingsDirty);
     $("bridgePromptButton").addEventListener("click", buildBridgePrompt);
     $("bridgeApplyButton").addEventListener("click", applyBridgeAnswer);
     $("newChatGPTButton").addEventListener("click", openNewChatGPTTask);
@@ -2050,6 +2197,7 @@
     updateCostPreview();
     loadApiKeys();
     syncBridgeButtons();
+    syncRelayButtons();
     loadStatus();
   </script>
 </body>
