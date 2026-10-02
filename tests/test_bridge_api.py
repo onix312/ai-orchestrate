@@ -216,6 +216,37 @@ class BridgeRoundTripTests(unittest.TestCase):
         self.assertEqual(self.manager._jobs[job.id].status, "incomplete")
         self.assertFalse(self.manager.fetch(job.id)["can_confirm"])
 
+    def test_bridge_apply_reuses_the_manual_relay_for_the_review_step(self):
+        """Повторная проверка ответа в ручном режиме тоже спрашивает обычный ChatGPT."""
+        job = self._job_with_worktree()
+        job.submission.settings.update({"mode": "full", "executor": "chatgpt", "limit_fallback": "chatgpt"})
+        job.relay = relay_module.ManualRelay(
+            on_event=lambda event: self.manager._workflow_event(job, event), timeout=30)
+        summary = {}
+        asked = []
+
+        def worker():
+            summary["value"] = self.manager.bridge_apply({
+                "run": job.id,
+                "answer": "### FILE: app.py\n```python\n"
+                          "def total(items):\n    return round(sum(items), 2)\n```\n",
+            })
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            state = job.relay.public()
+            if state and state["request"] and state["waiting"]:
+                asked.append(state["request"]["kind"])
+                job.relay.deliver("PASS\nБлокирующих замечаний нет.")
+                break
+            time.sleep(0.05)
+        thread.join(timeout=25)
+        self.assertIn("review", asked, "мост должен спросить ревью через панель")
+        self.assertTrue(summary["value"]["checks_passed"], summary["value"])
+        self.assertEqual(job.status, "awaiting_confirmation")
+
     def test_bridge_refuses_to_touch_files_outside_the_worktree(self):
         job = self._job_with_worktree()
         summary = self.manager.bridge_apply({
