@@ -119,6 +119,60 @@
     .panel-title { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:12px; }
     .panel-title h2 { font-size:14px; }
     .counter { color:#9eacb9; border:1px solid #2c3b48; padding:3px 7px; border-radius:7px; font:10px ui-monospace,monospace; }
+    .orchestra-scene { margin-top:14px; overflow:hidden; border-color:#33434f; background:linear-gradient(125deg,rgba(26,39,48,.97),rgba(13,21,29,.98)); }
+    .orchestra-head { display:flex; justify-content:space-between; align-items:flex-start; gap:15px; padding:16px 19px 0; }
+    .orchestra-kicker { color:#8fe3c0; text-transform:uppercase; letter-spacing:1.2px; font-size:8px; font-weight:800; margin-bottom:4px; }
+    .orchestra-head h2 { font-size:14px; margin:0 0 3px; }
+    .orchestra-action { color:#9caebb; font-size:10px; }
+    .orchestra-state { display:flex; align-items:center; gap:7px; border:1px solid #2d4146; border-radius:999px; background:rgba(10,18,22,.55); padding:6px 9px; color:#a7c6b9; font:8px ui-monospace,monospace; white-space:nowrap; }
+    .orchestra-led { width:6px; height:6px; border-radius:50%; background:#7ee1b6; box-shadow:0 0 0 3px rgba(126,225,182,.09); }
+    .orchestra-scene[data-scene="idle"] .orchestra-led { background:#8497a5; box-shadow:none; }
+    .orchestra-scene[data-scene="error"] .orchestra-led { background:#ff8a91; box-shadow:0 0 0 3px rgba(255,138,145,.10); }
+    .orchestra-stage { position:relative; margin:9px 13px 13px; border:1px solid rgba(83,111,119,.24); border-radius:13px; overflow:hidden; background:radial-gradient(ellipse at 20% 30%,rgba(67,147,133,.15),transparent 35%),radial-gradient(ellipse at 78% 42%,rgba(79,123,166,.16),transparent 33%),#0b1219; }
+    .orchestra-svg { display:block; width:100%; height:auto; max-height:205px; }
+    .orchestra-svg .music-staff { stroke:#40525d; stroke-width:1; opacity:.38; }
+    .orchestra-svg .music-note { fill:#91ebc3; font:22px Georgia,serif; opacity:.42; }
+    .orchestra-svg .jev-coat { fill:url(#jevCoat); stroke:#78cbb0; stroke-width:1.4; }
+    .orchestra-svg .jev-face { fill:#f1c9a6; stroke:#9f755d; stroke-width:1.2; }
+    .orchestra-svg .jev-hair { fill:#273342; }
+    .orchestra-svg .jev-eye { fill:#18222b; }
+    .orchestra-svg .monitor-frame { fill:#26333c; stroke:#607983; stroke-width:1.5; }
+    .orchestra-svg .monitor-screen { fill:#0c1a1d; stroke:#4b9c87; stroke-width:1.2; }
+    .orchestra-svg .code-line { fill:#78d4ad; opacity:.72; }
+    .orchestra-svg .code-line.blue { fill:#84aaff; }
+    .orchestra-svg .code-line.amber { fill:#e7be79; }
+    .orchestra-svg .podium { fill:#233440; stroke:#5e7d83; stroke-width:1.4; }
+    .orchestra-svg .label { fill:#93a8b2; font:700 10px ui-monospace,monospace; letter-spacing:2px; }
+    .orchestra-svg .baton { transform-box:fill-box; transform-origin:left bottom; animation:baton-idle 2.2s ease-in-out infinite; }
+    .orchestra-svg .baton-stick { stroke:#f1ca79; stroke-width:3; stroke-linecap:round; }
+    .orchestra-svg .codex-glow { fill:#72e0b3; opacity:.05; transition:opacity .3s; }
+    .orchestra-svg .test-stamp { opacity:0; transform:scale(.5); transform-box:view-box; transform-origin:776px 148px; transition:opacity .25s,transform .25s; }
+    .orchestra-svg .review-glass { opacity:0; transform:translate(0,0); transition:opacity .25s; }
+    .orchestra-svg .final-spark { opacity:0; }
+    .orchestra-scene[data-scene="routing"] .baton,
+    .orchestra-scene[data-scene="planning"] .baton,
+    .orchestra-scene[data-scene="implementation"] .baton,
+    .orchestra-scene[data-scene="testing"] .baton,
+    .orchestra-scene[data-scene="review"] .baton { animation:baton-beat .82s ease-in-out infinite; }
+    .orchestra-scene[data-scene="routing"] .jev-puppet { animation:conductor-bob 1.3s ease-in-out infinite; }
+    .orchestra-scene[data-scene="implementation"] .codex-glow { opacity:.4; }
+    .orchestra-scene[data-scene="implementation"] .code-line { animation:code-blink .75s steps(2,end) infinite alternate; }
+    .orchestra-scene[data-scene="implementation"] .code-line:nth-of-type(2n) { animation-delay:.23s; }
+    .orchestra-scene[data-scene="testing"] .test-stamp { opacity:1; transform:scale(1); }
+    .orchestra-scene[data-scene="review"] .review-glass { opacity:1; animation:review-scan 2.2s ease-in-out infinite; }
+    .orchestra-scene[data-scene="final"] .final-spark { opacity:1; animation:finale 1.2s ease-in-out infinite alternate; }
+    .orchestra-scene[data-scene="error"] .music-note { fill:#ff9c94; opacity:.2; }
+    .orchestra-caption { display:flex; align-items:center; gap:8px; padding:0 12px 10px; color:#92a3af; font-size:9px; }
+    .orchestra-caption span { flex:0 0 auto; color:#7c8d99; font:700 8px ui-monospace,monospace; letter-spacing:.6px; }
+    .orchestra-caption b { min-width:0; color:#b9c9d1; font-weight:550; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    @keyframes baton-idle { 0%,100% { transform:rotate(-3deg); } 50% { transform:rotate(5deg); } }
+    @keyframes baton-beat { 0%,100% { transform:rotate(-12deg); } 40% { transform:rotate(18deg); } 68% { transform:rotate(-4deg); } }
+    @keyframes conductor-bob { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-2px); } }
+    @keyframes code-blink { from { opacity:.28; } to { opacity:1; } }
+    @keyframes review-scan { 0%,100% { transform:translate(0,0); } 50% { transform:translate(-20px,6px); } }
+    @keyframes finale { from { transform:translateY(2px) rotate(-8deg); } to { transform:translateY(-8px) rotate(10deg); } }
+    .orchestra-scene[data-scene="idle"] .baton { animation-duration:3.5s; }
+    @media (prefers-reduced-motion:reduce) { .orchestra-scene *, .orchestra-scene *::before, .orchestra-scene *::after { animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; } }
     .jev-card { margin-top:14px; padding:16px 18px; display:none; border-color:#37486a; background:linear-gradient(120deg,rgba(61,78,123,.16),rgba(16,25,35,.96)); }
     .jev-card.show { display:block; }
     .jev-top { display:flex; align-items:center; justify-content:space-between; gap:12px; }
@@ -278,6 +332,75 @@
           </div>
         </section>
 
+        <section class="card orchestra-scene" id="orchestraScene" data-scene="idle" aria-label="Анимация дирижёра Jev и Codex">
+          <div class="orchestra-head">
+            <div><div class="orchestra-kicker">Живая сцена · локальный дирижёр или внешний Jev</div><h2>Jev дирижирует, Codex играет</h2><div class="orchestra-action" id="orchestraAction">Сцена ждёт задачу: Jev настраивает пюпитр, Codex разогревает клавиатуру.</div></div>
+            <span class="orchestra-state"><i class="orchestra-led"></i><span id="orchestraState">ОРКЕСТР ГОТОВ</span></span>
+          </div>
+          <div class="orchestra-stage">
+            <svg class="orchestra-svg" viewBox="0 0 900 230" role="img" aria-labelledby="orchestraTitle orchestraDesc">
+              <title id="orchestraTitle">Jev дирижирует перед Codex</title>
+              <desc id="orchestraDesc">Jev машет палочкой перед экраном Codex. Движение меняется вместе с этапами работы.</desc>
+              <defs>
+                <linearGradient id="jevCoat" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#496d78"/><stop offset="1" stop-color="#233845"/></linearGradient>
+                <linearGradient id="screenGlow" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#152e30"/><stop offset="1" stop-color="#0b171b"/></linearGradient>
+                <radialGradient id="spotlight"><stop offset="0" stop-color="#8ce7c3" stop-opacity=".17"/><stop offset="1" stop-color="#8ce7c3" stop-opacity="0"/></radialGradient>
+              </defs>
+              <rect width="900" height="230" fill="#0b1219"/>
+              <ellipse cx="158" cy="100" rx="175" ry="142" fill="url(#spotlight)"/>
+              <ellipse class="codex-glow" cx="690" cy="105" rx="205" ry="135"/>
+              <g class="music-staff" fill="none"><path d="M25 78H870M25 94H870M25 110H870M25 126H870M25 142H870"/></g>
+              <g aria-hidden="true">
+                <text class="music-note" x="280" y="92">♪</text><text class="music-note" x="382" y="147">♫</text>
+                <text class="music-note" x="495" y="75">♪</text><text class="music-note" x="819" y="103">♫</text>
+              </g>
+              <g class="final-spark" fill="#f2ca78" aria-hidden="true">
+                <path d="M275 65l4 10 10 4-10 4-4 10-4-10-10-4 10-4z"/><path d="M444 153l3 7 8 3-8 3-3 8-3-8-8-3 8-3z"/>
+                <path d="M827 60l3 8 8 3-8 3-3 8-3-8-8-3 8-3z"/>
+              </g>
+              <path d="M24 196H876" stroke="#2e414a" stroke-width="2"/>
+              <ellipse cx="158" cy="196" rx="111" ry="12" fill="#080e13" opacity=".8"/>
+              <g class="jev-puppet">
+                <path class="podium" d="M70 171Q158 161 246 171L232 193H85Z"/>
+                <path d="M89 177H228" stroke="#8ac9b2" stroke-opacity=".55" stroke-width="2"/>
+                <path class="jev-coat" d="M126 106Q152 94 178 106L191 166H112Z"/>
+                <path d="M149 109L159 109L166 147L155 158L144 147Z" fill="#d9ba82"/>
+                <path d="M124 121Q108 129 102 147" fill="none" stroke="#3c5a67" stroke-width="12" stroke-linecap="round"/>
+                <circle cx="101" cy="149" r="7" fill="#efc5a3"/>
+                <path d="M174 113Q187 106 195 95" fill="none" stroke="#3c5a67" stroke-width="12" stroke-linecap="round"/>
+                <circle cx="195" cy="95" r="7" fill="#efc5a3"/>
+                <circle class="jev-face" cx="153" cy="72" r="25"/>
+                <path class="jev-hair" d="M129 69Q128 45 151 44Q175 42 179 66Q166 57 156 57Q145 66 129 69Z"/>
+                <ellipse class="jev-eye" cx="145" cy="74" rx="2.2" ry="3"/><ellipse class="jev-eye" cx="161" cy="74" rx="2.2" ry="3"/>
+                <path d="M147 86Q153 90 160 85" fill="none" stroke="#985f5c" stroke-width="2" stroke-linecap="round"/>
+                <path d="M132 56Q153 48 172 57" fill="none" stroke="#91e0c2" stroke-width="2" opacity=".75"/>
+                <g transform="translate(195 95)"><g class="baton"><path class="baton-stick" d="M0 0L31 -36"/><circle cx="31" cy="-36" r="3" fill="#fff0bd"/></g></g>
+                <text class="label" x="129" y="210">JEV · MAESTRO</text>
+              </g>
+              <g class="codex-unit">
+                <rect class="monitor-frame" x="552" y="38" width="257" height="139" rx="15"/>
+                <rect class="monitor-screen" x="564" y="50" width="233" height="115" rx="9" fill="url(#screenGlow)"/>
+                <circle cx="579" cy="63" r="3" fill="#ff898f"/><circle cx="589" cy="63" r="3" fill="#eac579"/><circle cx="599" cy="63" r="3" fill="#7ee1b6"/>
+                <text x="618" y="68" fill="#91eac4" font-family="ui-monospace,monospace" font-size="9" font-weight="700" letter-spacing="1.6">CODEX // READY</text>
+                <g class="code-lines">
+                  <rect class="code-line blue" x="580" y="81" width="28" height="4" rx="2"/><rect class="code-line" x="614" y="81" width="82" height="4" rx="2"/>
+                  <rect class="code-line amber" x="590" y="94" width="43" height="4" rx="2"/><rect class="code-line" x="639" y="94" width="113" height="4" rx="2"/>
+                  <rect class="code-line blue" x="590" y="107" width="22" height="4" rx="2"/><rect class="code-line" x="618" y="107" width="95" height="4" rx="2"/>
+                  <rect class="code-line amber" x="580" y="120" width="34" height="4" rx="2"/><rect class="code-line" x="620" y="120" width="126" height="4" rx="2"/>
+                  <rect class="code-line blue" x="590" y="133" width="26" height="4" rx="2"/><rect class="code-line" x="622" y="133" width="71" height="4" rx="2"/>
+                </g>
+                <path d="M663 177V190M700 177V190M644 191H719" stroke="#566b75" stroke-width="5" stroke-linecap="round"/>
+                <path d="M617 191L601 199H761L745 191Z" fill="#344853" stroke="#536d77"/>
+                <path d="M618 197H744M629 194L626 198M642 194L639 198M655 194L652 198M668 194L665 198M681 194L678 198M694 194L691 198M707 194L704 198M720 194L717 198M733 194L730 198" stroke="#8bcdb5" stroke-opacity=".7" stroke-width="1"/>
+                <g class="review-glass" fill="none" stroke="#8caeff" stroke-width="4" aria-hidden="true"><circle cx="749" cy="93" r="18"/><path d="M762 107L777 122" stroke-linecap="round"/></g>
+                <g class="test-stamp" aria-hidden="true"><circle cx="776" cy="148" r="16" fill="#15382f" stroke="#86e5be" stroke-width="2"/><path d="M768 148L774 154L785 141" fill="none" stroke="#a7f2ce" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></g>
+                <text class="label" x="634" y="217">CODEX · В РАБОТЕ</text>
+              </g>
+            </svg>
+            <div class="orchestra-caption" role="status" aria-live="polite"><span>СЕЙЧАС</span><b id="orchestraActionLive">Ожидает задачу</b></div>
+          </div>
+        </section>
+
         <section class="card jev-card" id="jevCard">
           <div class="jev-top"><div class="jev-title"><div class="jev-icon">J</div><div><h3>Jev · решение роутера</h3><div class="jev-choice" id="jevChoice">Ожидаю результат…</div></div></div><div class="jev-confidence" id="jevConfidence">—</div></div>
           <div class="probabilities" id="probabilities"></div>
@@ -347,6 +470,33 @@
     }
     function statusLabel(status) {
       return ({queued:"В очереди", running:"Выполняется", complete:"Готово", incomplete:"Нужна проверка", failed:"Ошибка", cancelled:"Отменено"})[status] || status;
+    }
+    const orchestraLabels = {
+      idle: "ОРКЕСТР ГОТОВ", preflight: "ПРОВЕРКА ПРОЕКТА", routing: "ТРИАЖ", planning: "ПЛАНИРОВАНИЕ",
+      implementation: "CODEX ИГРАЕТ", testing: "ПРОВЕРКА ЗВУКА", review: "РЕВЬЮ", final: "ФИНАЛ", error: "ПАУЗА"
+    };
+    const orchestraCopy = {
+      idle: "Сцена ждёт задачу: Jev настраивает пюпитр, Codex разогревает клавиатуру.",
+      preflight: "Проверяю партитуру: репозиторий, Git и команды проверок.",
+      routing: "Дирижёр выбирает, какой оркестр и с какой громкостью вступит.",
+      planning: "Jev задаёт темп: аналитик и архитектор собирают короткий план.",
+      implementation: "Jev показывает вступление — Codex исполняет партию.",
+      testing: "Музыка на паузе: локальные тесты проверяют каждую ноту.",
+      review: "Ревьюер слушает запись в read-only и ищет фальшивые ноты.",
+      final: "Занавес: цикл завершён, результат и расход показаны в журнале.",
+      error: "Пауза оркестра: цикл остановлен, смотри сообщение и журнал действий."
+    };
+    function updateOrchestraAction(text) {
+      if (!text) return;
+      const safe = safeText(text);
+      $("orchestraAction").textContent = safe;
+      $("orchestraActionLive").textContent = safe;
+    }
+    function setOrchestraScene(stage, action) {
+      const normalized = orchestraLabels[stage] ? stage : "idle";
+      $("orchestraScene").dataset.scene = normalized;
+      $("orchestraState").textContent = orchestraLabels[normalized];
+      updateOrchestraAction(action || orchestraCopy[normalized]);
     }
     function iconFor(event) {
       if (event.includes("failed") || event.includes("incomplete")) return ["!", "bad"];
@@ -436,6 +586,19 @@
       state.lastEvent = Math.max(state.lastEvent, event.id || 0);
       addTimeline(event);
       const data = event.data || {};
+      if (event.event === "run.started") {
+        activateStage("preflight");
+        setOrchestraScene("preflight", "Старт: проверяю проект перед первым тактом.");
+      }
+      if (event.event === "stage.started") setOrchestraScene(event.stage, event.message);
+      if (event.event === "model.started") updateOrchestraAction(`${event.role || "Codex"} вступает: ${data.model || "модель"} / ${data.effort || "low"}.`);
+      if (event.event === "router.jev.started") updateOrchestraAction("Jev поднимает палочку и выбирает минимально достаточную модель.");
+      if (event.event === "router.jev.completed") updateOrchestraAction(`Jev выбрал ${data.choice || "полосу"} · уверенность ${Math.round((data.confidence || 0) * 100)}%.`);
+      if (event.event === "tool.started") updateOrchestraAction(`Codex запускает партию-команду: ${(data.command || "команда").slice(0, 120)}`);
+      if (event.event === "file.change") updateOrchestraAction(`Codex меняет файл: ${(data.path || "путь не указан").slice(0, 120)}`);
+      if (event.event === "check.started") updateOrchestraAction(`QA слушает: ${data.command || "запускаю проверку"}`);
+      if (event.event === "check.result") updateOrchestraAction(`${data.returncode === 0 ? "PASS" : "FAIL"}: ${data.command || "проверка"}`);
+      if (event.event === "stage.completed") updateOrchestraAction(event.message);
       if (stageOrder[event.stage] !== undefined && event.event?.endsWith("started")) activateStage(event.stage);
       if (event.event === "stage.completed" && stageOrder[event.stage] !== undefined) {
         setStage(event.stage, data.passed === false ? "error" : "done");
@@ -457,7 +620,6 @@
         state.calls = Math.max(state.calls, Number(data.call || state.calls + 1));
         $("callsMetric").textContent = `${state.calls} / ${data.call_limit || "—"}`;
       }
-      if (event.event === "run.started") activateStage("preflight");
       if (["run.completed", "run.incomplete", "run.failed", "run.cancelled"].includes(event.event)) {
         stepIds.forEach(id => {
           const node = document.querySelector(`.step[data-stage="${id}"]`);
@@ -469,6 +631,7 @@
         setStage("final", event.event === "run.completed" ? "done" : "error");
         const banner = $("resultBanner"); banner.classList.add("show");
         const ok = event.event === "run.completed";
+        setOrchestraScene(ok ? "final" : "error", event.message || (ok ? orchestraCopy.final : orchestraCopy.error));
         if (!ok) banner.classList.add("fail"); else banner.classList.remove("fail");
         $("resultTitle").textContent = ok ? "Цикл завершён" : event.event === "run.cancelled" ? "Задача остановлена" : "Цикл не прошёл все ворота";
         $("resultText").textContent = event.message || "";
@@ -643,6 +806,7 @@
     ["repairs", "maxCalls"].forEach(id => $(id).addEventListener("input", updateCostPreview));
     $("dayBudget").addEventListener("input", updateDailyUsage);
     setInterval(() => { if (state.startAt && state.timer) $("timeMetric").textContent = formatTime((Date.now() - state.startAt) / 1000); }, 1000);
+    setOrchestraScene("idle");
     updateCostPreview();
     loadStatus();
   </script>

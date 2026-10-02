@@ -29,6 +29,9 @@ class WebTests(unittest.TestCase):
                 page = response.read().decode("utf-8")
                 self.assertEqual(response.status, 200)
                 self.assertIn("Расход до запуска", page)
+                self.assertIn("Jev дирижирует, Codex играет", page)
+                self.assertIn('data-scene="idle"', page)
+                self.assertIn("router.jev.completed", page)
             with urlopen(base + "/api/status", timeout=3) as response:
                 status = response.read().decode("utf-8")
                 self.assertIn(str(root.resolve()), status)
