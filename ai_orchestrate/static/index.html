@@ -60,7 +60,7 @@
     }
     input:focus, textarea:focus, select:focus { border-color:#6ccda9; box-shadow:0 0 0 3px rgba(131,240,193,.09); }
     textarea { resize:vertical; min-height:84px; line-height:1.45; }
-    #task { min-height:133px; }
+    #task { min-height:96px; max-height:260px; }
     #checks { min-height:70px; font:12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
     .repo-row, .context-row { display:flex; gap:7px; }
     .repo-row input, .context-row input { min-width:0; }
@@ -96,6 +96,12 @@
     .limits[open] summary::after { content:"−"; }
     .limits-inner { padding:0 11px 11px; }
     .prompt-body { max-height:220px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; margin:8px 0 0; padding:9px; border:1px solid #263442; border-radius:8px; background:#0b121a; color:#b7c5d0; font:10px/1.5 ui-monospace,monospace; }
+    .extension-links { display:grid; gap:6px; margin-top:8px; }
+    .extension-link { display:flex; align-items:center; justify-content:space-between; gap:8px; border:1px solid #2b3b49; border-radius:8px; padding:8px 9px; color:#c5d6df; background:rgba(12,20,28,.7); text-decoration:none; font-size:10px; }
+    .extension-link:hover { border-color:#5b8c7a; color:#dcf6e9; }
+    .extension-link small { color:#8093a0; font-size:9px; text-align:right; }
+    .extension-tools { display:flex; flex-wrap:wrap; gap:7px; margin-top:9px; }
+    .extension-tools a { color:#8fdcbe; font-size:10px; }
     .toggle-row { display:flex; align-items:center; gap:8px; font-size:11px; color:#bfcbd6; margin-top:12px; }
     input[type="checkbox"] { accent-color:#74dbb1; width:15px; height:15px; }
     .primary { width:100%; border:0; border-radius:11px; margin-top:16px; padding:12px 15px; background:linear-gradient(110deg,#8bf0c3,#8caeff); color:#0a141b; font-weight:800; box-shadow:0 10px 24px rgba(118,203,179,.13); transition:transform .15s, filter .15s; }
@@ -167,6 +173,10 @@
     .step { min-width:0; padding:9px 9px 8px; border:1px solid #24313e; background:rgba(9,15,22,.33); border-radius:10px; position:relative; opacity:.55; }
     .step.active { opacity:1; border-color:rgba(131,240,193,.55); background:rgba(87,177,143,.07); }
     .step.done { opacity:.94; border-color:#355448; }
+    .step.skipped { opacity:.42; border-style:dashed; }
+    .step.skipped .num::after { content:" · пропуск"; color:#718292; font-size:8px; }
+    .step.waiting { opacity:1; border-color:#594a35; background:rgba(244,199,121,.04); }
+    .step.waiting i { display:block; background:var(--amber); animation:none; }
     .step.error { opacity:1; border-color:#78474e; }
     .step .num { color:#718292; font:10px ui-monospace,monospace; }
     .step strong { display:block; font-size:10px; margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -174,6 +184,56 @@
     .step.active i { display:block; animation:pulse 1.4s infinite; }
     @keyframes pulse { 50% { box-shadow:0 0 0 5px rgba(131,240,193,.08); opacity:.5; } }
     .content-grid { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(270px,.75fr); gap:15px; margin-top:15px; }
+    .chat-card { margin-top:15px; overflow:hidden; }
+    .chat-head { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; padding:17px 20px 13px; border-bottom:1px solid rgba(52,68,81,.7); }
+    .chat-heading { min-width:0; }
+    .chat-kicker { color:#83dcb6; font:750 9px ui-monospace,monospace; letter-spacing:1px; text-transform:uppercase; }
+    .chat-head h2 { margin:3px 0 2px; font-size:15px; }
+    .chat-subtitle { color:#8798a6; font-size:10px; }
+    .chat-state { flex:0 0 auto; display:inline-flex; align-items:center; gap:7px; border:1px solid #34434e; border-radius:999px; padding:6px 9px; color:#aab9c5; background:#0d151d; font-size:9px; }
+    .chat-state::before { content:""; width:6px; height:6px; border-radius:50%; background:#80919f; }
+    .chat-state[data-state="running"] { border-color:#365747; color:#a9efd0; }
+    .chat-state[data-state="running"]::before { background:var(--accent); box-shadow:0 0 0 3px rgba(131,240,193,.1); animation:pulse 1.4s infinite; }
+    .chat-state[data-state="done"] { border-color:#365747; color:#a9efd0; }
+    .chat-state[data-state="done"]::before { background:var(--accent); }
+    .chat-state[data-state="waiting"], .chat-state[data-state="warning"] { border-color:#594a35; color:#e9ca91; }
+    .chat-state[data-state="waiting"]::before, .chat-state[data-state="warning"]::before { background:var(--amber); }
+    .chat-state[data-state="error"] { border-color:#633d45; color:#ffb2b7; }
+    .chat-state[data-state="error"]::before { background:var(--red); }
+    .chat-stream { display:flex; flex-direction:column; gap:12px; height:325px; min-height:225px; overflow:auto; padding:16px 20px; background:linear-gradient(180deg,rgba(8,14,20,.24),rgba(12,19,27,.52)); scroll-behavior:smooth; }
+    .chat-empty { display:grid; place-items:center; align-content:center; flex:1; min-height:190px; text-align:center; color:#8494a1; padding:18px; }
+    .chat-empty[hidden] { display:none; }
+    .chat-empty-icon { width:38px; height:38px; display:grid; place-items:center; margin-bottom:10px; border:1px solid #2c4146; border-radius:12px; color:#95e4c2; background:rgba(131,240,193,.05); font-size:17px; }
+    .chat-empty strong { display:block; color:#c6d3dc; font-size:12px; margin-bottom:4px; }
+    .chat-empty span { max-width:350px; font-size:10px; line-height:1.55; }
+    .chat-message { display:flex; align-items:flex-start; gap:8px; max-width:91%; min-width:0; align-self:flex-start; }
+    .chat-message.user { align-self:flex-end; flex-direction:row-reverse; }
+    .chat-avatar { flex:0 0 25px; width:25px; height:25px; display:grid; place-items:center; border:1px solid #344653; border-radius:8px; color:#a9efd0; background:#14251f; font:700 9px ui-monospace,monospace; }
+    .chat-message.user .chat-avatar { border-color:#435982; color:#b4c5ff; background:#1b2438; }
+    .chat-content { min-width:0; }
+    .chat-meta { display:flex; align-items:center; gap:7px; margin:0 2px 4px; color:#8798a6; font-size:9px; }
+    .chat-meta strong { color:#bdc9d2; font-weight:700; }
+    .chat-meta time { color:#637482; font:9px ui-monospace,monospace; }
+    .chat-badge { border:1px solid #2b3c46; border-radius:5px; padding:1px 5px; color:#93a8b4; font:8px ui-monospace,monospace; text-transform:uppercase; letter-spacing:.2px; }
+    .chat-bubble { max-width:100%; border:1px solid #2b3945; border-radius:4px 12px 12px; padding:9px 11px; color:#c5d0d9; background:#121c25; font-size:10px; line-height:1.55; white-space:pre-wrap; overflow-wrap:anywhere; }
+    .chat-message.user .chat-bubble { border-color:#384967; border-radius:12px 4px 12px 12px; color:#d8e0f5; background:rgba(48,65,99,.38); }
+    .chat-message.activity .chat-bubble { border-left:2px solid #527c6b; }
+    .chat-message.assistant .chat-bubble { border-left:2px solid #6075a6; }
+    .chat-message[data-tone="success"] .chat-bubble { border-color:#355a4c; border-left-color:var(--accent); }
+    .chat-message[data-tone="warning"] .chat-bubble { border-color:#594a35; border-left-color:var(--amber); }
+    .chat-message[data-tone="error"] .chat-bubble { border-color:#633d45; border-left-color:var(--red); color:#f2c6c8; }
+    .chat-compose { padding:12px 16px 14px; border-top:1px solid rgba(52,68,81,.7); background:rgba(12,19,27,.7); }
+    .chat-compose textarea { display:block; min-height:84px; padding:11px 12px; border-color:#334452; background:#0b131b; font-size:11px; }
+    .chat-compose-footer { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:9px; }
+    .chat-hint { color:#788a98; font-size:9px; line-height:1.45; }
+    .chat-actions { display:flex; align-items:center; flex:0 0 auto; gap:7px; }
+    .chat-send { border:1px solid #5b806e; border-radius:9px; padding:9px 13px; color:#08151b; background:linear-gradient(110deg,#8bf0c3,#8caeff); font-size:10px; font-weight:800; white-space:nowrap; }
+    .chat-send:hover { filter:brightness(1.06); }
+    .chat-send:disabled { opacity:.45; cursor:not-allowed; }
+    .chat-desktop { border:1px solid #46606d; border-radius:9px; padding:8px 10px; color:#bfd1da; background:#14212a; font-size:10px; font-weight:700; white-space:nowrap; }
+    .chat-desktop:hover { border-color:#78b5a7; color:#d9f5e8; background:#182a30; }
+    .chat-actions .cancel { width:auto; margin-top:0; padding:8px 10px; font-size:10px; white-space:nowrap; }
+    .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
     .panel { padding:17px 19px; min-width:0; }
     .panel-title { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:12px; }
     .panel-title h2 { font-size:14px; }
@@ -284,8 +344,8 @@
     .subtle { color:#71818f; font-size:10px; }
     .toast { position:fixed; right:20px; bottom:18px; z-index:9; padding:11px 14px; max-width:min(420px,calc(100vw - 40px)); border:1px solid #41515f; border-radius:10px; color:#eaf1f5; background:#17212b; box-shadow:var(--shadow); opacity:0; transform:translateY(8px); pointer-events:none; transition:.2s; font-size:11px; }
     .toast.show { opacity:1; transform:translateY(0); }
-    @media (max-width:1100px) { .layout { grid-template-columns:340px minmax(0,1fr); } .steps { grid-template-columns:repeat(4,1fr); } .content-grid { grid-template-columns:1fr; } .timeline { height:350px; } }
-    @media (max-width:760px) { .shell { padding:14px; } .layout { grid-template-columns:1fr; } .composer { position:static; } .hero { align-items:flex-start; flex-direction:column; } .hero-metrics { width:100%; } .metric { flex:1; } .top-note { display:none; } .steps { grid-template-columns:repeat(4,minmax(65px,1fr)); } }
+    @media (max-width:1100px) { .layout { grid-template-columns:340px minmax(0,1fr); } .steps { grid-template-columns:repeat(4,1fr); } .content-grid { grid-template-columns:1fr; } .timeline { height:350px; } .chat-stream { height:300px; } }
+    @media (max-width:760px) { .shell { padding:14px; } .layout { grid-template-columns:1fr; } .composer { position:static; } .hero { align-items:flex-start; flex-direction:column; } .hero-metrics { width:100%; } .metric { flex:1; } .top-note { display:none; } .steps { grid-template-columns:repeat(4,minmax(65px,1fr)); } .chat-head { padding:15px; } .chat-stream { height:300px; padding:13px; } .chat-message { max-width:100%; } .chat-compose { padding:11px; } .chat-compose-footer { align-items:flex-start; flex-direction:column; } .chat-actions { width:100%; flex-wrap:wrap; } .chat-send { flex:1; } .chat-desktop { flex:1 1 auto; } }
   </style>
 </head>
 <body>
@@ -366,13 +426,8 @@
             <div class="field-hint" style="margin-top:5px" id="projectHint">Список проектов берётся из истории сессий Codex, из журнала панели и из рабочей области.</div>
           </div>
 
-          <div class="group-head"><span class="group-num">2</span><h3>Задача</h3><span class="group-note">что именно сделать</span></div>
+          <div class="group-head"><span class="group-num">2</span><h3>Контекст</h3><span class="group-note">задачу отправляй в чате справа</span></div>
           <div class="field" style="margin-top:8px">
-            <label for="task">Что нужно сделать?</label>
-            <textarea id="task" maxlength="48000" placeholder="Например: Добавь страницу настроек с тёмной темой, сохранением выбора и тестами. Сначала посмотри, как устроен проект."></textarea>
-            <div class="field-hint" style="margin-top:5px">Пиши как человеку. Не вставляй ключи, пароли и приватные данные. Можно оставить пустым, если ниже указан GitHub issue/PR.</div>
-          </div>
-          <div class="field">
             <label for="githubItem">Контекст из GitHub <span class="field-hint">issue/PR этого репозитория</span></label>
             <div class="context-row"><input id="githubItem" type="text" placeholder="#42 или https://github.com/owner/repo/issues/42"><button type="button" id="loadGithubContext">Загрузить</button></div>
             <span class="context-note" id="githubContextNote">gh CLI использует ваш существующий вход через gh auth login.</span>
@@ -420,6 +475,24 @@
               <div class="field"><label for="promptRole">Роль</label><select id="promptRole"></select></div>
               <pre class="prompt-body" id="promptBody">Загружаю промпты…</pre>
               <div class="footnote">Шаблоны используются оркестратором автоматически. В полном цикле роли аналитика, архитектора и ревьюера выполняются отдельными этапами.</div>
+            </div>
+          </details>
+
+          <details class="limits" id="extensionsPanel">
+            <summary>Полезные skills и plugins для ChatGPT Desktop</summary>
+            <div class="limits-inner">
+              <div class="footnote">Официальные ссылки открывают экран установки в Codex. Установка и подключение сервисов требуют твоего подтверждения; расширения появятся в новых чатах.</div>
+              <div class="extension-links">
+                <a class="extension-link" href="codex://plugins/install/build-web-data-visualization?marketplace=openai-curated" target="_blank" rel="noreferrer"><span><strong>Build Web Data Visualization</strong><br><small>интерактивные дашборды, карты, 3D/WebGL, экспорт</small></span><span>↗</span></a>
+                <a class="extension-link" href="codex://plugins/install/game-studio?marketplace=openai-curated" target="_blank" rel="noreferrer"><span><strong>Game Studio</strong><br><small>собрать играбельный браузерный 2D/3D-прототип</small></span><span>↗</span></a>
+                <a class="extension-link" href="codex://plugins/install/build-web-apps?marketplace=openai-curated" target="_blank" rel="noreferrer"><span><strong>Build Web Apps</strong><br><small>frontend builder + testing/debugging</small></span><span>↗</span></a>
+                <a class="extension-link" href="codex://plugins/install/github?marketplace=openai-curated" target="_blank" rel="noreferrer"><span><strong>GitHub</strong><br><small>issues, PR reviews, CI</small></span><span>↗</span></a>
+                <a class="extension-link" href="codex://plugins/install/codex-security?marketplace=openai-curated" target="_blank" rel="noreferrer"><span><strong>Codex Security</strong><br><small>additional security scan</small></span><span>↗</span></a>
+                <a class="extension-link" href="codex://plugins/install/openai-developers?marketplace=openai-curated" target="_blank" rel="noreferrer"><span><strong>OpenAI Developers</strong><br><small>current OpenAI/Codex docs</small></span><span>↗</span></a>
+                <a class="extension-link" href="codex://plugins/install/figma?marketplace=openai-curated" target="_blank" rel="noreferrer"><span><strong>Figma</strong><br><small>only if the design lives in Figma</small></span><span>↗</span></a>
+              </div>
+              <div class="extension-tools"><a href="codex://skills" target="_blank" rel="noreferrer">Управление skills</a><a href="https://developers.openai.com/codex/plugins" target="_blank" rel="noreferrer">Plugins</a><a href="https://developers.openai.com/codex/app/computer-use" target="_blank" rel="noreferrer">Computer Use</a><a href="https://github.com/microsoft/playwright-mcp" target="_blank" rel="noreferrer">Playwright MCP</a></div>
+              <div class="footnote">Для локального сайта сначала попробуй встроенный <code>@Browser</code>. Computer Use подходит для Windows-интерфейсов, но управляет активным рабочим столом и не может автоматизировать само приложение ChatGPT.</div>
             </div>
           </details>
 
@@ -485,9 +558,7 @@
           </div>
           <div class="autofill-report" id="autofillReport"></div>
           <div class="settings-save-row"><button class="secondary-button" type="button" id="saveSettings">Сохранить настройки</button><span class="settings-state" id="settingsState" role="status">Настройки загружаются…</span></div>
-          <button class="primary" type="submit" id="startButton">▶　Запустить полный цикл</button>
-          <button class="cancel" type="button" id="cancelButton">■　Отменить задачу</button>
-          <div class="footnote">Настройки сохраняются локально в settings.json, ключ Jev — в отдельном файле с правами 0600. Каждая задача создаёт отдельную ветку и worktree; исходный checkout не редактируется. Слияние никогда не выполняется вручную в терминале этим агентом.</div>
+          <div class="footnote">Запусти работу кнопкой отправки в чате справа. Настройки и ключи хранятся локально; каждая задача выполняется в отдельной ветке и worktree, исходный checkout не редактируется.</div>
         </form>
       </aside>
 
@@ -511,6 +582,38 @@
             <div class="step" data-stage="testing"><i></i><span class="num">05</span><strong>QA / тесты</strong></div>
             <div class="step" data-stage="review"><i></i><span class="num">06</span><strong>Ревью</strong></div>
             <div class="step" data-stage="final"><i></i><span class="num">07</span><strong>Итог</strong></div>
+          </div>
+        </section>
+
+        <section class="card chat-card" aria-labelledby="chatTitle">
+          <div class="chat-head">
+            <div class="chat-heading">
+              <div class="chat-kicker">Задача · ход работы · результат</div>
+              <h2 id="chatTitle">Диалог с агентом</h2>
+              <div class="chat-subtitle">Этапы, краткие ответы ролей и проверки будут появляться здесь по мере работы.</div>
+            </div>
+            <span class="chat-state" id="chatState" data-state="idle" role="status">Готов к задаче</span>
+          </div>
+          <div class="chat-stream" id="chatMessages" role="log" aria-live="polite" aria-relevant="additions text" aria-label="Сообщения и ход выполнения задачи">
+            <div class="chat-empty" id="chatEmpty">
+              <div>
+                <div class="chat-empty-icon" aria-hidden="true">✦</div>
+                <strong>Начните с сообщения</strong>
+                <span>Опишите, что нужно сделать. Я покажу подготовку, триаж, план, разработку, тесты, ревью и итог. Все технические события остаются в журнале действий ниже.</span>
+              </div>
+            </div>
+          </div>
+          <div class="chat-compose">
+            <label class="sr-only" for="task">Сообщение агенту</label>
+            <textarea id="task" maxlength="48000" aria-label="Сообщение агенту" placeholder="Например: Добавь страницу настроек с тёмной темой и тестами. Сначала изучи структуру проекта."></textarea>
+            <div class="chat-compose-footer">
+              <span class="chat-hint">Enter — запуск в новом worktree · Shift+Enter — строка. Кнопка ChatGPT откроет отдельный локальный чат Codex с подставленной задачей; отправка останется за тобой. Не вставляй ключи и пароли.</span>
+              <div class="chat-actions">
+                <button class="cancel" type="button" id="cancelButton">■　Остановить</button>
+                <button class="chat-desktop" type="button" id="newChatGPTButton" title="Открыть новый локальный чат Codex в ChatGPT Desktop; задача не отправляется автоматически">↗　Новый чат ChatGPT</button>
+                <button class="chat-send" type="submit" form="runForm" id="startButton">▶　Запустить полный цикл</button>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -627,7 +730,7 @@
     const $ = (id) => document.getElementById(id);
     const stepIds = ["preflight", "routing", "planning", "implementation", "testing", "review", "final"];
     const stageOrder = Object.fromEntries(stepIds.map((id, i) => [id, i]));
-    let state = { mode: "full", status: null, jobId: null, lastEvent: 0, calls: 0, maxCalls: 0, tokens: 0, dailyTokens: null, startAt: 0, timer: null, polling: false, files: new Set(), checkMap: new Map(), settingsTimer: null, settingsLoaded: false, settingsSaving: false, githubItem: null, projectContextRepo: "", env: null, jevKey: null, projects: null, apiKeys: null };
+    let state = { mode: "full", status: null, jobId: null, lastEvent: 0, calls: 0, maxCalls: 0, tokens: 0, dailyTokens: null, startAt: 0, timer: null, polling: false, files: new Set(), checkMap: new Map(), settingsTimer: null, settingsLoaded: false, settingsSaving: false, githubItem: null, projectContextRepo: "", env: null, jevKey: null, projects: null, apiKeys: null, chatJobId: null, chatEventIds: new Set(), chatMessageCount: 0 };
 
     function toast(message) {
       const node = $("toast"); node.textContent = message; node.classList.add("show");
@@ -648,7 +751,7 @@
     function setStage(stage, status) {
       const node = document.querySelector(`.step[data-stage="${stage}"]`);
       if (!node) return;
-      node.classList.remove("active", "done", "error");
+      node.classList.remove("active", "done", "error", "skipped", "waiting");
       if (status) node.classList.add(status);
     }
     function activateStage(stage) {
@@ -658,7 +761,7 @@
         const node = document.querySelector(`.step[data-stage="${id}"]`);
         if (!node) return;
         node.classList.remove("active");
-        if (i < index && !node.classList.contains("error")) node.classList.add("done");
+        if (i < index && !node.classList.contains("error") && !node.classList.contains("skipped")) node.classList.add("done");
       });
       setStage(stage, "active");
     }
@@ -669,6 +772,158 @@
     }
     function statusLabel(status) {
       return ({queued:"В очереди", running:"Выполняется", merging:"Слияние…", awaiting_confirmation:"Ожидает подтверждения слияния", complete:"Готово", incomplete:"Нужна проверка", failed:"Ошибка", cancelled:"Отменено"})[status] || status;
+    }
+    const chatStageTitles = {preflight:"Проверка проекта", routing:"Триаж", planning:"План", implementation:"Разработка", testing:"QA / тесты", review:"Ревью", final:"Итог"};
+    function setChatStatus(text, kind = "idle") {
+      const node = $("chatState");
+      if (!node) return;
+      node.textContent = safeText(text);
+      node.dataset.state = kind;
+    }
+    function resetChat() {
+      state.chatJobId = null;
+      state.chatEventIds = new Set();
+      state.chatMessageCount = 0;
+      const stream = $("chatMessages");
+      if (stream) {
+        stream.replaceChildren();
+        const empty = $("chatEmpty");
+        if (empty) { empty.hidden = false; stream.append(empty); }
+      }
+      setChatStatus("Готов к задаче", "idle");
+    }
+    function chatTime(timestamp) {
+      const date = timestamp ? new Date(timestamp) : new Date();
+      return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString("ru-RU", {hour:"2-digit", minute:"2-digit"});
+    }
+    function addChatMessage(kind, role, text, options = {}) {
+      const message = safeText(text);
+      if (!message.trim()) return;
+      const stream = $("chatMessages");
+      const empty = $("chatEmpty");
+      if (empty) empty.hidden = true;
+      const article = document.createElement("article");
+      article.className = `chat-message ${kind || "assistant"}`;
+      article.dataset.tone = options.tone || "";
+      const avatar = document.createElement("span");
+      avatar.className = "chat-avatar"; avatar.setAttribute("aria-hidden", "true");
+      avatar.textContent = kind === "user" ? "Вы" : role === "Jev" ? "J" : kind === "activity" ? "↻" : "AI";
+      const content = document.createElement("div"); content.className = "chat-content";
+      const meta = document.createElement("div"); meta.className = "chat-meta";
+      const who = document.createElement("strong"); who.textContent = safeText(role || (kind === "user" ? "Вы" : "Агент")); meta.append(who);
+      if (options.badge) { const badge = document.createElement("span"); badge.className = "chat-badge"; badge.textContent = safeText(options.badge); meta.append(badge); }
+      const time = document.createElement("time"); time.textContent = chatTime(options.timestamp); meta.append(time);
+      const bubble = document.createElement("div"); bubble.className = "chat-bubble"; bubble.textContent = message;
+      content.append(meta, bubble); article.append(avatar, content); stream.append(article);
+      stream.scrollTop = stream.scrollHeight;
+      state.chatMessageCount += 1;
+    }
+    function chatText(value, limit = 2200) {
+      const text = safeText(value).trim();
+      return text.length > limit ? `${text.slice(0, limit)}…` : text;
+    }
+    function addChatEvent(event) {
+      const eventId = event.id == null ? "" : String(event.id);
+      if (eventId && state.chatEventIds.has(eventId)) return;
+      if (eventId) state.chatEventIds.add(eventId);
+      const data = event.data || {};
+      const stage = chatStageTitles[event.stage] || event.stage || "Работа";
+      let item = null;
+      switch (event.event) {
+        case "run.started":
+          item = {kind:"activity", role:"Оркестратор", badge:"Старт", text:event.message || "Запрос принят; подготавливаю рабочую копию."};
+          setChatStatus("Подготовка проекта…", "running");
+          break;
+        case "worktree.created":
+          item = {kind:"activity", role:"Оркестратор", badge:"Изолированная ветка", text:`${event.message || "Рабочая копия готова."}${data.branch ? `\nВетка: ${data.branch}` : ""}`};
+          break;
+        case "stage.started":
+          item = {kind:"activity", role:event.role || stage, badge:`Этап · ${stage}`, text:event.message || `Начат этап «${stage}».`};
+          setChatStatus(stage, "running");
+          break;
+        case "stage.completed":
+          item = {kind:"activity", role:event.role || stage, badge:`Этап · ${data.passed === false ? "есть замечания" : "готово"}`, tone:data.passed === false ? "warning" : "success", text:event.message || `Этап «${stage}» завершён.`};
+          break;
+        case "stage.retry":
+          item = {kind:"activity", role:event.role || "Исполнитель", badge:"Исправление", tone:"warning", text:event.message || "Запускаю цикл исправления."};
+          break;
+        case "router.jev.started":
+        case "jev.started":
+          item = {kind:"activity", role:event.role || "Jev", badge:"Триаж", text:event.message || "Выбираю подходящий маршрут."};
+          break;
+        case "router.jev.completed":
+        case "jev.completed":
+          item = {kind:"activity", role:event.role || "Jev", badge:"Решение роутера", tone:"success", text:event.message || `Выбран маршрут ${data.choice || data.lane || "задачи"}.`};
+          break;
+        case "jev.final.approved":
+          item = {kind:"activity", role:"Jev", badge:"Финальный gate", tone:"success", text:event.message || "Jev одобрил интеграцию."};
+          break;
+        case "jev.final.failed":
+          item = {kind:"activity", role:"Jev", badge:"Финальный gate", tone:"warning", text:event.message || "Автоматическое слияние остановлено."};
+          break;
+        case "model.started":
+          item = {kind:"activity", role:event.role || "Модель", badge:data.model ? `Модель · ${data.model}` : "Модель", text:event.message || `${event.role || "Модель"} приступает к этапу «${stage}».`};
+          break;
+        case "model.message":
+          item = {kind:"assistant", role:event.role || "Ответ роли", badge:`Результат · ${stage}`, text:chatText(data.excerpt || event.message)};
+          break;
+        case "model.completed":
+          if (data.returncode !== 0) item = {kind:"activity", role:event.role || "Модель", badge:"Ошибка этапа", tone:"error", text:chatText([event.message, data.stderr].filter(Boolean).join("\n"))};
+          break;
+        case "file.change":
+          item = {kind:"activity", role:"Изменения файлов", badge:"Файл", text:`Изменён файл: ${data.path || "путь не указан"}`};
+          break;
+        case "check.started":
+          item = {kind:"activity", role:event.role || "QA", badge:"Проверка", text:`Запускаю: ${data.command || "команду проверки"}`};
+          break;
+        case "check.result":
+          item = {kind:"activity", role:event.role || "QA", badge:data.returncode === 0 ? "PASS" : `FAIL · ${data.returncode}`, tone:data.returncode === 0 ? "success" : "error", text:data.command || event.message || "Проверка завершена."};
+          break;
+        case "warning":
+          item = {kind:"activity", role:event.role || "Оркестратор", badge:"Предупреждение", tone:"warning", text:chatText(event.message)};
+          break;
+        case "run.completed": {
+          const checks = Array.isArray(data.checks) ? data.checks : [];
+          const passed = checks.filter(check => check.returncode === 0).length;
+          const files = Array.isArray(data.changed_files) ? data.changed_files : [];
+          const summary = [event.message || "Задача завершена."];
+          if (checks.length) summary.push(`Проверки: ${passed}/${checks.length} пройдены.`);
+          if (files.length) summary.push(`Изменено файлов: ${files.length}${files.length <= 8 ? ` · ${files.join(", ")}` : ` · ${files.slice(0, 8).join(", ")} и ещё`}.`);
+          if (data.branch) summary.push(`Ветка: ${data.branch}.`);
+          item = {kind:"assistant", role:"Итог", badge:"Готово", tone:"success", text:summary.join("\n")};
+          setChatStatus("Готово", "done");
+          break;
+        }
+        case "run.incomplete":
+        case "run.failed":
+        case "run.cancelled":
+          item = {kind:"assistant", role:"Итог", badge:event.event === "run.cancelled" ? "Остановлено" : "Нужна проверка", tone:event.event === "run.cancelled" ? "warning" : "error", text:chatText(event.message || statusLabel(event.event.replace("run.", "")))};
+          setChatStatus(statusLabel(event.event.replace("run.", "")), event.event === "run.cancelled" ? "waiting" : "error");
+          break;
+        case "merge.awaiting_confirmation":
+          item = {kind:"assistant", role:"Итог", badge:"Готово к слиянию", tone:"success", text:`${event.message || "Проверки завершены."}${data.branch ? `\nВетка: ${data.branch}` : ""}`};
+          setChatStatus("Ожидает подтверждения", "waiting");
+          break;
+        case "merge.started":
+          item = {kind:"activity", role:"Оркестратор", badge:"Слияние", text:event.message || "Выполняю слияние проверенной ветки."};
+          setChatStatus("Слияние…", "running");
+          break;
+        case "merge.completed":
+        case "merge.queued":
+          item = {kind:"assistant", role:"Итог", badge:event.event === "merge.completed" ? "Слияние завершено" : "Слияние в очереди", tone:"success", text:event.message || "Интеграция готова."};
+          setChatStatus(event.event === "merge.completed" ? "Слияние завершено" : "Проверки GitHub", "done");
+          break;
+        case "merge.failed":
+          item = {kind:"assistant", role:"Оркестратор", badge:"Слияние не выполнено", tone:"error", text:chatText(event.message)};
+          setChatStatus("Слияние не выполнено", "error");
+          break;
+        case "worktree.discard.completed":
+          item = {kind:"activity", role:"Оркестратор", badge:"Рабочая копия удалена", text:event.message || "Ветка и worktree удалены."};
+          break;
+        default:
+          break;
+      }
+      if (item) addChatMessage(item.kind, item.role, item.text, {badge:item.badge, tone:item.tone, timestamp:event.timestamp});
     }
     const orchestraLabels = {
       idle: "ОРКЕСТР ГОТОВ", preflight: "ПРОВЕРКА ПРОЕКТА", routing: "ТРИАЖ", planning: "ПЛАНИРОВАНИЕ",
@@ -804,6 +1059,7 @@
     function applyEvent(event) {
       state.lastEvent = Math.max(state.lastEvent, event.id || 0);
       addTimeline(event);
+      addChatEvent(event);
       const data = event.data || {};
       if (event.event === "run.started") {
         activateStage("preflight");
@@ -819,6 +1075,11 @@
       if (event.event === "check.result") updateOrchestraAction(`${data.returncode === 0 ? "PASS" : "FAIL"}: ${data.command || "проверка"}`);
       if (event.event === "stage.completed") updateOrchestraAction(event.message);
       if (stageOrder[event.stage] !== undefined && event.event?.endsWith("started")) activateStage(event.stage);
+      if (event.event === "stage.retry" && stageOrder[event.stage] !== undefined) activateStage(event.stage);
+      if (event.event === "merge.awaiting_confirmation") { activateStage("final"); setStage("final", "waiting"); }
+      if (event.event === "merge.started") activateStage("final");
+      if (["merge.completed", "merge.queued"].includes(event.event)) { activateStage("final"); setStage("final", "done"); }
+      if (event.event === "merge.failed") { activateStage("final"); setStage("final", "error"); }
       if (event.event === "stage.completed" && stageOrder[event.stage] !== undefined) {
         setStage(event.stage, data.passed === false ? "error" : "done");
       }
@@ -889,6 +1150,7 @@
         if (response.status === 404) {
           clearInterval(state.timer); state.timer = null; state.jobId = null;
           $("runStatus").textContent = "Задача недоступна: возможно, сервер перезапущен. Рабочая ветка остаётся в Git.";
+          setChatStatus("Запуск недоступен", "error");
           $("startButton").disabled = false;
           state.canBridge = false; syncBridgeButtons();
           $("confirmMergeButton").style.display = "none"; $("discardWorktreeButton").style.display = "none";
@@ -897,8 +1159,24 @@
         if (!response.ok) throw new Error("Не удалось получить события задачи");
         const job = await response.json();
         if (state.jobId !== requestedJobId) return;
+        if (state.chatJobId !== job.id) {
+          resetChat();
+          state.chatJobId = job.id;
+          if (job.mode === "quick") {
+            setStage("planning", "skipped"); setStage("review", "skipped");
+            document.querySelector('.step[data-stage="planning"]')?.setAttribute("title", "Пропущен в бережливом режиме");
+            document.querySelector('.step[data-stage="review"]')?.setAttribute("title", "Пропущен в бережливом режиме");
+          } else {
+            document.querySelector('.step[data-stage="planning"]')?.removeAttribute("title");
+            document.querySelector('.step[data-stage="review"]')?.removeAttribute("title");
+          }
+          addChatMessage("user", "Вы", job.task || "Задача запущена.", {badge:"Ваш запрос", timestamp:job.created_at});
+        }
+        if (!state.startAt && job.created_at) state.startAt = new Date(job.created_at).getTime();
         job.events.forEach(applyEvent);
         state.canBridge = job.can_bridge; syncBridgeButtons();
+        const chatTone = ({running:"running", queued:"running", merging:"running", awaiting_confirmation:"waiting", complete:"done", incomplete:"error", failed:"error", cancelled:"waiting"})[job.status] || "idle";
+        setChatStatus(statusLabel(job.status), chatTone);
         $("runStatus").textContent = statusLabel(job.status) + (job.error ? ` · ${job.error}` : "");
         const confirmButton = $("confirmMergeButton"), discardButton = $("discardWorktreeButton");
         confirmButton.style.display = job.can_confirm ? "inline-flex" : "none";
@@ -934,7 +1212,10 @@
           confirmButton.style.display = "none"; discardButton.style.display = "none";
           $("startButton").disabled = true; $("cancelButton").style.display = "block";
         }
-      } catch (error) { $("runStatus").textContent = `Связь с панелью прервана: ${error.message}. Повторяю запрос…`; }
+      } catch (error) {
+        $("runStatus").textContent = `Связь с панелью прервана: ${error.message}. Повторяю запрос…`;
+        setChatStatus("Связь потеряна · повторяю", "warning");
+      }
       finally { state.polling = false; }
     }
     function collectSettings() {
@@ -1439,12 +1720,15 @@
     }
     async function openRun(jobId) {
       clearInterval(state.timer);
-      state.jobId = jobId; state.lastEvent = 0; state.calls = 0; state.tokens = 0;
+      state.jobId = jobId; state.lastEvent = 0; state.calls = 0; state.tokens = 0; state.startAt = 0;
       state.files.clear(); state.checkMap.clear(); state.canBridge = false;
+      resetChat(); setChatStatus("Загружаю ход работы…", "running");
       $("timeline").replaceChildren(); $("checksList").replaceChildren(); $("filesList").replaceChildren();
       $("resultTitle").textContent = ""; $("resultText").textContent = "";
       $("resultBanner").classList.remove("show", "fail");
       stepIds.forEach(id => setStage(id, ""));
+      document.querySelector('.step[data-stage="planning"]')?.removeAttribute("title");
+      document.querySelector('.step[data-stage="review"]')?.removeAttribute("title");
       state.timer = setInterval(poll, 1000); await poll();
     }
     async function loadHistory() {
@@ -1506,9 +1790,43 @@
       } catch (error) { $("githubContextNote").textContent = error.message; toast(error.message); }
       finally { $("loadGithubContext").disabled = false; }
     }
+    async function openNewChatGPTTask() {
+      const taskText = $("task").value.trim();
+      const githubRef = $("githubItem").value.trim();
+      if (!taskText && !githubRef) { toast("Опиши задачу или укажи GitHub issue/PR."); return; }
+      const popup = window.open("about:blank", "_blank");
+      if (!popup) { toast("Разреши всплывающее окно для новой беседы ChatGPT Desktop."); return; }
+      const button = $("newChatGPTButton");
+      button.disabled = true;
+      const label = button.textContent;
+      button.textContent = "Открываю чат…";
+      try {
+        const response = await fetch("/api/chatgpt/new-task", {
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({repo:$("repo").value.trim(), task:taskText, checks:$("checks").value, github_item:githubRef}),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Не удалось подготовить чат ChatGPT");
+        if (!data.prompt_in_url) {
+          if (!navigator.clipboard?.writeText) throw new Error("Запрос слишком длинный для ссылки, а буфер обмена недоступен. Сократи задачу и повтори.");
+          await navigator.clipboard.writeText(data.prompt);
+        }
+        popup.location.href = data.url;
+        toast(data.prompt_in_url
+          ? "Новый чат Codex открыт: проверь подставленную задачу и отправь её вручную. Оркестратор не запускался."
+          : "Новый чат открыт; длинный запрос скопирован. Вставь его через Ctrl+V и отправь вручную.");
+      } catch (error) {
+        try { popup.close(); } catch (_) { /* The protocol handler may already own the window. */ }
+        toast(error.message);
+      } finally {
+        button.disabled = false;
+        button.textContent = label;
+      }
+    }
     async function startRun(event) {
       event.preventDefault();
-      if (!$("task").value.trim() && !$("githubItem").value.trim()) { toast("Опиши задачу или укажи GitHub issue/PR."); return; }
+      const taskText = $("task").value.trim();
+      if (!taskText && !$("githubItem").value.trim()) { toast("Опиши задачу или укажи GitHub issue/PR."); return; }
       $("startButton").disabled = true; $("startButton").textContent = "Сохраняю настройки…";
       try {
         await saveSettings(false);
@@ -1525,6 +1843,11 @@
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Не удалось запустить задачу");
         state.jobId = data.id; state.lastEvent = 0; state.calls = 0; state.maxCalls = settings.max_model_calls; state.tokens = 0; state.startAt = Date.now(); state.files.clear(); state.checkMap.clear(); state.polling = false;
+        resetChat(); state.chatJobId = data.id;
+        const chatPrompt = taskText || `Задача из GitHub: ${$("githubItem").value.trim()}`;
+        addChatMessage("user", "Вы", chatPrompt, {badge:"Ваш запрос"});
+        setChatStatus("Подготовка проекта…", "running");
+        $("task").value = "";
         $("timeline").replaceChildren(); $("eventCount").textContent = "0 событий";
         const checking = document.createElement("div"); checking.className = "plan-empty"; checking.textContent = "Проверки выполняются…"; $("checksList").replaceChildren(checking);
         const findingFiles = document.createElement("span"); findingFiles.className = "plan-empty"; findingFiles.textContent = "Ищу изменения…"; $("filesList").replaceChildren(findingFiles);
@@ -1532,11 +1855,22 @@
         $("resultBanner").classList.remove("show", "fail"); $("confirmMergeButton").style.display = "none"; $("discardWorktreeButton").style.display = "none";
         $("jevCard").classList.toggle("show", settings.router === "jev" || settings.merge_policy === "jev_auto");
         if (settings.router === "jev" || settings.merge_policy === "jev_auto") showJev({}, "Jev будет участвовать в маршрутизации или финальном решении о слиянии…"); else $("jevCard").classList.remove("show");
-        stepIds.forEach(id => setStage(id, "")); activateStage("preflight");
+        stepIds.forEach(id => setStage(id, ""));
+        if (settings.mode === "quick") {
+          setStage("planning", "skipped"); setStage("review", "skipped");
+          document.querySelector('.step[data-stage="planning"]')?.setAttribute("title", "Пропущен в бережливом режиме");
+          document.querySelector('.step[data-stage="review"]')?.setAttribute("title", "Пропущен в бережливом режиме");
+        } else {
+          document.querySelector('.step[data-stage="planning"]')?.removeAttribute("title");
+          document.querySelector('.step[data-stage="review"]')?.removeAttribute("title");
+        }
+        activateStage("preflight");
         $("runStatus").textContent = "Подготовка задачи…"; $("startButton").textContent = "Задача выполняется"; $("cancelButton").style.display = "block";
         clearInterval(state.timer); state.timer = setInterval(poll, 500); await poll();
       } catch (error) {
         $("startButton").disabled = false; $("startButton").textContent = state.mode === "full" ? "▶　Запустить полный цикл" : "▶　Запустить бережливый цикл";
+        setChatStatus("Не удалось запустить", "error");
+        addChatMessage("assistant", "Оркестратор", error.message, {badge:"Запуск не начат", tone:"error"});
         toast(error.message);
       }
     }
@@ -1621,6 +1955,12 @@
       node.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") setMode(node.dataset.mode); });
     });
     $("runForm").addEventListener("submit", startRun);
+    $("task").addEventListener("keydown", event => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        $("runForm").requestSubmit($("startButton"));
+      }
+    });
     $("cancelButton").addEventListener("click", cancelRun);
     $("confirmMergeButton").addEventListener("click", confirmMerge);
     $("discardWorktreeButton").addEventListener("click", discardWorktree);
@@ -1678,6 +2018,7 @@
     }));
     $("bridgePromptButton").addEventListener("click", buildBridgePrompt);
     $("bridgeApplyButton").addEventListener("click", applyBridgeAnswer);
+    $("newChatGPTButton").addEventListener("click", openNewChatGPTTask);
     $("bridgeAnswer").addEventListener("input", syncBridgeButtons);
     $("copyBridgePrompt").addEventListener("click", async () => {
       try { await navigator.clipboard.writeText($("bridgePromptText").value); toast("Промпт скопирован — вставь его в ChatGPT."); }

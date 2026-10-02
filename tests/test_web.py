@@ -3,6 +3,7 @@ import os
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError
@@ -32,6 +33,21 @@ class WebTests(unittest.TestCase):
             manager._record_journal(RunJob("test-job", submission, status="complete"))
             self.assertEqual(shared.stat().st_mode & 0o777, 0o755)
             self.assertEqual(journal_file.stat().st_mode & 0o777, 0o600)
+
+    def test_run_fetch_restores_chat_prompt_and_redacts_environment_secrets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manager = RunManager(root, settings_path=root / "settings.json")
+            secret_value = "unique-chat-secret-token-42"
+            submission = RunSubmission(root, f"Review this value: {secret_value}", [], {"mode": "quick"})
+            job = RunJob("chat-job", submission)
+            manager._jobs[job.id] = job
+            with patch.dict("os.environ", {"CHAT_TEST_API_KEY": secret_value}):
+                payload = manager.fetch(job.id)
+            self.assertEqual(payload["mode"], "quick")
+            self.assertIn("Review this value", payload["task"])
+            self.assertIn("[REDACTED]", payload["task"])
+            self.assertNotIn(secret_value, payload["task"])
 
     def test_project_context_is_persisted_separately_per_repository(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -70,6 +86,10 @@ class WebTests(unittest.TestCase):
                 self.assertIn('data-scene="idle"', page)
                 self.assertIn("router.jev.completed", page)
                 self.assertIn("confirmMergeButton", page)
+                self.assertIn("Диалог с агентом", page)
+                self.assertIn('id="chatMessages" role="log"', page)
+                self.assertIn("Этапы, краткие ответы ролей и проверки", page)
+                self.assertIn('data-stage="planning"', page)
                 self.assertIn("usageLogPath", page)
                 self.assertIn("journalPath", page)
                 self.assertIn("Сохранить настройки", page)

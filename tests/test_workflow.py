@@ -41,6 +41,17 @@ class WorkflowTests(unittest.TestCase):
             with patch("ai_orchestrate.workflow.shutil.which", side_effect=self._which):
                 self.assertEqual(suggest_checks(repo), ["pytest -q"])
 
+    def test_unittest_suggestion_anchors_importable_test_packages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            tests_dir = repo / "tests"
+            tests_dir.mkdir()
+            which = lambda command: "python.exe" if command == "python" else None
+            with patch("ai_orchestrate.workflow.shutil.which", side_effect=which):
+                self.assertEqual(suggest_checks(repo), ["python -m unittest discover -s tests"])
+                (tests_dir / "__init__.py").write_text("", encoding="utf-8")
+                self.assertEqual(suggest_checks(repo), ["python -m unittest discover -s tests -t ."])
+
     def test_full_cycle_emits_professions_calls_codex_and_runs_review_read_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

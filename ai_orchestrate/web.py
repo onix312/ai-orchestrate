@@ -295,6 +295,26 @@ class RunManager:
             raise OrchestratorError("Передай ключ в поле key или clear: true.")
         return {"keys": secrets.all_key_status(), "changed": secrets.save_key(provider_id, key)}
 
+    def create_desktop_chat(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Validate the selected workspace and prepare a user-initiated ChatGPT Desktop handoff."""
+        if not isinstance(payload, dict):
+            raise OrchestratorError("Запрос должен быть JSON-объектом.")
+        settings = self.settings_store.load()
+        raw_repo = payload.get("repo") or settings.get("default_repo") or str(self._default_repo(settings))
+        repo = self._safe_repo_path(str(raw_repo))
+        task = payload.get("task", "")
+        checks = payload.get("checks", settings.get("default_checks", ""))
+        if isinstance(checks, list) and all(isinstance(item, str) for item in checks):
+            if len(checks) > 12:
+                raise OrchestratorError("Можно передать не более 12 команд проверки.")
+            checks = "\n".join(checks)
+        elif not isinstance(checks, str):
+            raise OrchestratorError("Список проверок должен быть текстом или массивом команд.")
+        github_ref = payload.get("github_item", "")
+        if not isinstance(github_ref, str):
+            raise OrchestratorError("Ссылка на GitHub должна быть текстом.")
+        return {"repo": str(repo), **chatgpt_bridge.build_desktop_task_link(repo, task, checks, github_ref)}
+
     def _bridge_job(self, payload: dict[str, Any]) -> RunJob:
         if not isinstance(payload, dict):
             raise OrchestratorError("Запрос должен быть JSON-объектом.")
@@ -769,6 +789,8 @@ class RunManager:
                 "id": job.id,
                 "status": job.status,
                 "created_at": job.created_at,
+                "task": redact_data(job.submission.task) if after <= 0 else "",
+                "mode": job.submission.settings.get("mode", "full"),
                 "events": events,
                 "result": job.result,
                 "error": job.error,
@@ -1488,6 +1510,15 @@ def make_handler(manager: RunManager) -> type[BaseHTTPRequestHandler]:
                     self._json(200, manager.save_provider_key(provider_id, payload))
                 except OrchestratorError as exc:
                     self._json(400, {"error": str(exc)})
+                return
+            if parsed.path == "/api/chatgpt/new-task":
+                payload = _json_body(self)
+                if payload is None:
+                    return
+                try:
+                    self._json(200, manager.create_desktop_chat(payload))
+                except OrchestratorError as exc:
+                    self._json(400, {"error": redact_data(str(exc))})
                 return
             if parsed.path in {"/api/bridge/prompt", "/api/bridge/apply"}:
                 payload = _json_body(self)

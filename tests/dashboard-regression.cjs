@@ -7,12 +7,13 @@ const script = html.split('<script>')[1].split('</script>')[0];
 new vm.Script(script); // Parse all code, including handlers below the controller.
 const controller = script.slice(0, script.indexOf('    document.querySelectorAll(".mode-option").forEach(node => {'));
 const nodes = new Map();
+const stageNodes = new Map();
 function node() {
   const classes = new Set();
   return { textContent: '', value: '', disabled: false, options: [], style: {}, dataset: {},
     classList: {add: (...xs) => xs.forEach(x => classes.add(x)),
       remove: (...xs) => xs.forEach(x => classes.delete(x)), contains: x => classes.has(x)},
-    replaceChildren() {}, append() {}, prepend() {}, addEventListener() {} };
+    replaceChildren() {}, append() {}, prepend() {}, addEventListener() {}, setAttribute() {}, removeAttribute() {} };
 }
 let timer = 10;
 const context = vm.createContext({
@@ -21,7 +22,12 @@ const context = vm.createContext({
   document: {getElementById: id => {
     if (!nodes.has(id)) nodes.set(id, node());
     return nodes.get(id);
-  }, querySelectorAll: () => [], querySelector: () => null, createElement: node},
+  }, querySelectorAll: () => [], querySelector: selector => {
+    const match = selector.match(/\.step\[data-stage="([^"]+)"\]/);
+    if (!match) return null;
+    if (!stageNodes.has(match[1])) stageNodes.set(match[1], node());
+    return stageNodes.get(match[1]);
+  }, createElement: node},
 });
 vm.runInContext(controller, context);
 const run = source => vm.runInContext(source, context);
@@ -68,6 +74,50 @@ async function main() {
   await run('loadStatus()');
   assert.equal(run('state.jobId'), 'restored-run', 'Reload must reconnect to the active job');
   assert.ok(run('state.timer'));
+
+  context.chatTestEvent = {id: 77, event: 'stage.started', stage: 'planning', role: 'Аналитик',
+    message: 'Формирую план', data: {}};
+  run('resetChat(); addChatMessage("user", "Вы", "Сделай чат"); addChatEvent(chatTestEvent); addChatEvent(chatTestEvent);');
+  assert.equal(run('state.chatMessageCount'), 2, 'A stage event must appear once in the chat');
+  assert.equal(nodes.get('chatState').textContent, 'План');
+  assert.equal(run('state.chatEventIds.has("77")'), true);
+
+  run('stepIds.forEach(id => setStage(id, "")); setStage("planning", "skipped"); setStage("review", "skipped"); activateStage("testing");');
+  assert.equal(stageNodes.get('planning').classList.contains('skipped'), true, 'Quick mode must show planning as skipped, not done');
+  assert.equal(stageNodes.get('review').classList.contains('skipped'), true, 'Quick mode must show review as skipped, not done');
+  assert.equal(stageNodes.get('implementation').classList.contains('done'), true);
+  assert.match(html, /Диалог с агентом/);
+  assert.match(html, /id="chatMessages" role="log"/);
+  assert.match(html, /id="newChatGPTButton"/);
+  assert.match(html, /codex:\/\/plugins\/install\/build-web-data-visualization\?marketplace=openai-curated/);
+  assert.match(html, /codex:\/\/plugins\/install\/game-studio\?marketplace=openai-curated/);
+  assert.match(html, /codex:\/\/plugins\/install\/build-web-apps\?marketplace=openai-curated/);
+
+  let opened;
+  let copied = '';
+  const popup = {location: {}, close() { this.closed = true; }};
+  context.window = {open: (url, target) => { opened = {url, target}; return popup; }};
+  context.navigator = {clipboard: {writeText: async text => { copied = text; }}};
+  context.document.getElementById('repo').value = '/workspace/project';
+  context.document.getElementById('task').value = 'Add a preferences panel';
+  context.document.getElementById('checks').value = 'python -m unittest discover -s tests -t .';
+  context.fetch = async (_url, options) => {
+    assert.equal(JSON.parse(options.body).task, 'Add a preferences panel');
+    return {ok: true, json: async () => ({url: 'codex://new?path=%2Fworkspace%2Fproject&prompt=prefilled',
+      prompt: 'prefilled', prompt_in_url: true})};
+  };
+  await run('openNewChatGPTTask()');
+  assert.equal(opened.url, 'about:blank');
+  assert.equal(opened.target, '_blank');
+  assert.equal(popup.location.href, 'codex://new?path=%2Fworkspace%2Fproject&prompt=prefilled');
+  assert.equal(copied, '', 'Short tasks should be prefilled through the supported deep link');
+
+  const longPrompt = 'Long complete prompt';
+  context.fetch = async () => ({ok: true, json: async () => ({url: 'codex://new?path=%2Fworkspace%2Fproject',
+    prompt: longPrompt, prompt_in_url: false})});
+  await run('openNewChatGPTTask()');
+  assert.equal(copied, longPrompt, 'A long prompt should be copied intact for manual paste');
+  assert.equal(popup.location.href, 'codex://new?path=%2Fworkspace%2Fproject');
   console.log('Dashboard regression checks passed');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
